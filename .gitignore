@@ -7,6 +7,9 @@
 
 # testing
 /coverage
+.pytest_cache/
+.coverage
+htmlcov/
 
 # next.js
 /.next/
@@ -14,6 +17,7 @@
 
 # production
 /build
+dist/
 
 # misc
 .DS_Store
@@ -27,6 +31,8 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
+.env.*
+!.env.example
 
 # vercel
 .vercel
@@ -34,3 +40,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python
+__pycache__/
+*.py[cod]
+.python-version
+.venv/
+venv/
+env/
+.mypy_cache/
+.ruff_cache/
+.pyre/
