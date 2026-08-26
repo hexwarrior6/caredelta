@@ -436,3 +436,23 @@ Implementation approach:
 Any new implementation decision, product idea, scope tradeoff, or architecture
 change discussed during the build should be added to this document so the final
 README and technical brief stay consistent with the actual implementation.
+
+## Implementation Status
+
+### Phase 1: Project Skeleton
+
+- Added a FastAPI application under `backend/` with `GET /health`.
+- Added environment-based backend configuration and local CORS access for the
+  Next.js origin.
+- Added a Python health endpoint micro-test using FastAPI's test client.
+- Added a Next.js App Router application under `frontend/` using TypeScript and
+  Tailwind CSS.
+- The initial page performs a browser-side health request using
+  `NEXT_PUBLIC_API_URL`, defaulting to `http://localhost:8000`, and renders the
+  connection state explicitly.
+- Local setup, run, test, lint, and build commands are documented in `README.md`.
+- Production builds use Next.js Webpack mode for deterministic compatibility
+  with restricted CI environments; local development continues to use the
+  default fast development bundler.
+- MongoDB, RBAC, clinical services, provenance, and LLM integration remain out
+  of scope for Phase 1 and are not yet implemented.

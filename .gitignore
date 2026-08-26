@@ -1,22 +1,22 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
-/.pnp
+node_modules/
+.pnp
 .pnp.js
 
 # testing
-/coverage
+coverage/
 .pytest_cache/
 .coverage
 htmlcov/
 
 # next.js
-/.next/
-/out/
+.next/
+out/
 
 # production
-/build
+build/
 dist/
 
 # misc
@@ -35,7 +35,7 @@ yarn-error.log*
 !.env.example
 
 # vercel
-.vercel
+.vercel/
 
 # typescript
 *.tsbuildinfo
@@ -51,3 +51,7 @@ env/
 .mypy_cache/
 .ruff_cache/
 .pyre/
+
+# editors
+.idea/
+.vscode/
