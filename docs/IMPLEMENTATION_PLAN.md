@@ -1,0 +1,438 @@
+# CareDelta Implementation Plan
+
+## Product Direction
+
+CareDelta is a source-backed clinical change radar for longitudinal care records.
+It focuses on what changed since the last visit, what needs action, what conflicts
+with prior knowledge, and what clinicians have actually trusted.
+
+Core positioning:
+
+> AI suggests signals. Clinicians decide what becomes trusted clinical memory.
+
+## Confirmed Technical Stack
+
+- Next.js with App Router
+- TypeScript
+- Python API backend for clinical logic, RBAC, AI ingest, provenance, and audit
+- Next.js route handlers only as a lightweight BFF/proxy if needed
+- MongoDB Atlas for deployed persistence
+- Tailwind CSS for UI
+- Pytest for backend micro-tests
+- Vitest only for focused frontend/unit tests if needed
+- GitHub Actions for CI
+- Vercel for the Next.js frontend
+- Python backend deployment target to be selected during implementation
+- DeepSeek `deepseek-v4-flash` for real LLM ingest
+
+## Architecture
+
+```text
+Browser UI
+  |
+  v
+Next.js App Router
+  - Patient record pages
+  - Role preview UI
+  - Clinical Change Radar UI
+  - Timeline / comments / revisions UI
+  |
+  v
+Optional Next.js BFF / proxy route handlers
+  - session/auth forwarding
+  - simple frontend aggregation
+  - no source-of-truth RBAC decisions
+  |
+  v
+Python API Backend
+  - auth_context
+  - rbac
+  - timeline_service
+  - highlight_service
+  - revision_service
+  - ai_ingest_service
+  - delta_engine
+  - phi_redaction
+  - learning_engine
+  - audit_log_service
+  |
+  v
+Repository Layer
+  - MongoRepository for deployed app
+  - MemoryRepository for tests
+  |
+  v
+MongoDB Atlas
+```
+
+## Deployment Strategy
+
+The frontend will be deployed as a Next.js project on Vercel. The backend is
+planned as a Python API service so clinical logic, micro-tests, extraction,
+redaction, and audit behavior can be implemented in one backend boundary.
+
+Runtime persistence:
+
+```text
+Vercel Next.js frontend -> Python API backend -> MongoDB Atlas
+```
+
+If implementation time becomes tight, a Next.js-only backend remains a fallback.
+The preferred direction is Python backend plus Next frontend because the required
+micro-tests are backend-heavy and Python gives faster iteration for redaction,
+structured extraction, and pytest-based safety tests.
+
+### Vercel Runtime Constraints
+
+- Next.js route handlers must not become the source of truth for RBAC.
+- If a Next.js BFF is used, it forwards to the Python API and preserves actor
+  role, clinic scope, and request id.
+- The Python backend must reuse MongoDB clients rather than opening a new
+  connection per request.
+- Keep the demo AI ingest path short and synchronous for 72-hour delivery.
+- Treat long transcripts as a future async job design, not the core demo path.
+- The main patient record page must load from precomputed records and highlights;
+  it must not call the LLM on page load.
+
+## Test Strategy
+
+GitHub Actions will run:
+
+```text
+python -m pytest
+npm ci
+npm run build
+```
+
+Tests must not depend on MongoDB Atlas, DeepSeek, Vercel, or any external API.
+They will run against `MemoryRepository` and mock LLM adapters.
+
+The required micro-tests from the candidate brief will be implemented as Python
+pytest equivalents:
+
+- `tests/test_rbac_scope.py`
+- `tests/test_revision_history.py`
+- `tests/test_highlight_provenance.py`
+- `tests/test_concurrent_edits.py`
+- `tests/test_self_learning_importance.py`
+
+The repository layer should expose a shared contract test suite:
+
+- CI runs the contract tests against `MemoryRepository`.
+- Local development may optionally run the same contract tests against
+  `MongoRepository` when `MONGODB_URI` is present.
+- This keeps CI stable while still making the Mongo implementation verifiable.
+
+## LLM Integration
+
+DeepSeek `deepseek-v4-flash` will be integrated through an adapter interface.
+
+LLM pipeline:
+
+```text
+Raw synthetic transcript
+  -> PHI redaction
+  -> DeepSeek adapter
+  -> structured JSON validation
+  -> delta engine
+  -> highlights with provenance
+```
+
+Rules:
+
+- Raw transcript must not be sent to the LLM before PHI redaction.
+- DeepSeek output is treated as candidate signals, not clinical truth.
+- The backend delta engine owns final category, score, and trust status.
+- Provenance is created by locating LLM/rule `source_snippet` values inside the
+  sanitized transcript, then storing entry id and character offsets.
+- If DeepSeek fails or returns invalid JSON, the app falls back to a deterministic
+  rule-based extractor.
+- Tests use a mock LLM adapter.
+
+Environment variables:
+
+```text
+DEEPSEEK_API_KEY
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_BASE_URL
+MONGODB_URI
+```
+
+Secrets must not be committed.
+
+### LLM JSON Contract
+
+DeepSeek must return JSON only. Natural language output is invalid and triggers
+the deterministic fallback extractor.
+
+Expected shape:
+
+```py
+class LlmSignal(TypedDict):
+    text: str
+    category_hint: Literal[
+        "new",
+        "worsening",
+        "recurring",
+        "unresolved",
+        "contradicted",
+        "confirmed",
+    ]
+    risk_level_hint: Literal["low", "medium", "high"]
+    risk_reason: str
+    source_snippet: str
+    entities: list[str]
+    extraction_confidence: float
+
+
+class LlmExtraction(TypedDict):
+    summary: str
+    signals: list[LlmSignal]
+```
+
+Validation rules:
+
+- `source_snippet` is required for every signal.
+- `extraction_confidence` must be between 0 and 1.
+- Signals without resolvable provenance are downgraded to entry-level provenance
+  and marked `offsetConfidence: "low"`.
+- The LLM must not diagnose, invent facts, or convert patient claims into
+  confirmed clinical facts.
+
+## Evaluation and Abstention Policy
+
+Risk badges, confidence labels, and importance scores must be explainable and
+testable. They are not allowed to be decorative model outputs.
+
+Implementation approach:
+
+- Treat `extraction_confidence` as confidence that the extractor found a
+  source-backed signal, not confidence that the clinical statement is true.
+- Track separate provenance confidence:
+  - `high`: exact source snippet resolves to entry and character span.
+  - `medium`: snippet resolves to an entry but not exact offsets.
+  - `low`: only entry-level provenance is available.
+- Use deterministic safety rules to set a minimum risk floor for scoped clinical
+  classes such as allergies, medication changes, dosage changes, and unresolved
+  follow-up tasks.
+- The LLM may suggest risk, but the backend delta engine owns the final category,
+  risk floor, trust status, and whether the signal is displayable.
+- Abstain from promoting a signal into the top/glance card when provenance cannot
+  resolve, extraction confidence is below threshold, or the statement conflicts
+  with trusted memory and has not been reviewed.
+- Low-confidence or conflicting signals can still appear in a review queue with
+  a clear reason, but they must not be shown as confirmed clinical memory.
+
+## Patient-Facing Safety Gate
+
+Patient-facing summaries and instructions are a higher-severity output path than
+internal notes.
+
+Implementation approach:
+
+- Patients never see raw AI-scribed notes, raw transcripts, internal comments, or
+  unreviewed AI candidate signals.
+- Patient-facing content must be assembled from clinician-approved entries,
+  explicit patient instructions, or rule-filtered safe summaries.
+- Conflicting, low-provenance, rejected, or unreviewed highlights are excluded
+  from patient view.
+- Any patient-facing generated summary must carry an approval status. For the
+  72-hour demo, the safest implementation is to require clinician approval before
+  it becomes visible to the patient role.
+
+## Scoped Conflict Detection
+
+Conflict detection will be deliberately narrow for the demo so it is testable.
+
+Implementation approach:
+
+- Detect allergy conflicts where one entry states an allergy and a later entry
+  denies or contradicts it.
+- Detect medication conflicts for medication name, dose, or frequency changes.
+- Detect task-state conflicts such as an item marked resolved while another open
+  action still depends on it.
+- Clinician-authored entries take precedence for care-plan display, but conflicts
+  are still flagged for review instead of silently overwriting history.
+- Store conflict records with both source pointers so the reviewer can jump to
+  the competing entries.
+
+## Self-Learning Guardrails
+
+The importance learning mechanism must learn from clinical attention without
+creating an unsafe feedback loop.
+
+Implementation approach:
+
+- Manual highlight, pin, edit, and comment events can boost similar future
+  signals.
+- Learning is a bounded boost, not the whole importance score.
+- Dismissal does not automatically mean a class of information is clinically
+  unimportant; it is recorded as context, not negative truth.
+- Deterministic safety floors for allergies, medication changes, high-risk
+  symptoms, and unresolved tasks cannot be reduced by learned weights.
+- Store the reason for each learned boost, such as `boosted_by_prior_pins` or
+  `boosted_by_clinician_comments`, so the ranking can be explained in the demo.
+
+## Hybrid Storage and Data Decay
+
+Hybrid storage/data decay is a bonus feature. It should be designed even if only
+partially implemented.
+
+Implementation approach:
+
+- Keep recent timeline entries, unresolved tasks, active medication/allergy
+  facts, and conflicted records in full detail.
+- Older low-risk entries can be compressed into source-backed longitudinal
+  summaries.
+- Compression must preserve links to the original entries and must not destroy
+  revision history.
+- Safety-critical facts, unresolved tasks, clinician-confirmed highlights, and
+  conflicts never decay into summary-only storage.
+- The demo can show this as a policy and seed-data example rather than a full
+  background compaction job.
+
+### PHI Redaction Contract
+
+PHI redaction runs before the DeepSeek adapter.
+
+Redacted fields:
+
+- synthetic patient names
+- phone numbers
+- NRIC-like or ID-like values
+- email addresses
+- simple address patterns when present
+
+Tests must assert that the LLM adapter never receives known synthetic names,
+phone numbers, IDs, or emails from the seed transcript.
+
+## MongoDB Data Strategy
+
+Use separate collections rather than one large patient document:
+
+- `users`
+- `patients`
+- `timeline_entries`
+- `provenance_sources`
+- `highlights`
+- `comments`
+- `tasks`
+- `versions`
+- `audit_logs`
+- `interaction_events`
+- `conflicts`
+- `entry_summaries`
+
+Required indexes:
+
+- `patients`: `{ clinicId: 1 }`
+- `timeline_entries`: `{ patientId: 1, timestamp: -1 }`
+- `timeline_entries`: `{ patientId: 1, visibilityScope: 1 }`
+- `highlights`: `{ patientId: 1, score: -1, trustStatus: 1, category: 1 }`
+- `comments`: `{ entryId: 1, resolved: 1 }`
+- `tasks`: `{ patientId: 1, status: 1, dueAt: 1 }`
+- `versions`: `{ entryId: 1, versionNumber: -1 }`
+- `audit_logs`: `{ patientId: 1, createdAt: -1 }`
+- `interaction_events`: `{ patientId: 1, extractedTopic: 1, createdAt: -1 }`
+- `conflicts`: `{ patientId: 1, status: 1, severity: -1 }`
+- `entry_summaries`: `{ patientId: 1, sourceEntryIds: 1 }`
+
+### Consistency Strategy
+
+AI ingest writes multiple records: provenance source, timeline entry, highlights,
+and audit log.
+
+Preferred implementation:
+
+- Use MongoDB session transactions when available.
+- If transactions are not available in the local/dev setup, use ordered writes
+  and delete newly created dependent records if a later step fails.
+- Never create a highlight without a valid `provenancePointer`.
+- Never write audit logs containing raw note or transcript body.
+
+## RBAC Action Matrix
+
+All checks must run on the server in route handlers or service methods. UI hiding
+is only presentation logic.
+
+```text
+Action                         Patient   Staff   Clinician   Admin
+read_patient_summary           yes       yes     yes         yes
+read_patient_instructions      yes       yes     yes         yes
+read_staff_notes               no        yes     yes         yes
+read_clinician_sections        no        no      yes         yes
+read_raw_ai_transcript         no        no      yes         yes
+read_internal_comments         no        yes     yes         yes
+create_staff_note              no        yes     no          yes
+edit_staff_note                no        own     no          yes
+edit_clinician_section         no        no      yes         yes
+create_internal_comment        no        yes     yes         yes
+accept_highlight               no        no      yes         yes
+reject_highlight               no        no      yes         yes
+pin_highlight                  no        no      yes         yes
+rollback_entry                 no        no      owner-role  yes
+read_audit_log                 no        no      yes         yes
+```
+
+Every action also requires same-clinic scope unless the actor is a scoped admin
+for that clinic. There is no cross-clinic access in the demo.
+
+## Revision and Concurrency Strategy
+
+Use optimistic concurrency.
+
+- Every editable timeline entry has a numeric `version`.
+- Edit requests must include `expectedVersion`.
+- If `expectedVersion` does not match the stored version, return `409 Conflict`.
+- Different roles editing different entries do not overwrite each other.
+- Staff cannot overwrite clinician entries, and clinicians cannot overwrite staff
+  entries; they can comment, reference, or create their own entry.
+- Rollback never deletes history. It creates a new version whose content matches
+  the selected prior snapshot.
+
+## Performance Plan
+
+The brief requires the top consult view to load within P95 <= 300ms on the hot
+path.
+
+Implementation approach:
+
+- Precompute highlights during AI ingest and manual entry updates.
+- Store radar-ready highlights in the `highlights` collection.
+- Patient record load performs indexed reads only:
+  - patient profile
+  - top highlights
+  - unresolved tasks
+  - recent timeline entries
+- Do not call DeepSeek or run full delta analysis during page load.
+- Measure locally by logging route duration for `GET /api/patients/[id]/record`.
+- Document the measurement as a local hot-path estimate in the technical brief.
+
+## Failure Modes and Fallbacks
+
+- DeepSeek timeout: use deterministic rule extractor and mark extraction source
+  as `fallback_rules`.
+- Invalid DeepSeek JSON: reject the LLM response, use fallback extractor, and log
+  metadata only.
+- `source_snippet` not found: create entry-level provenance with
+  `offsetConfidence: "low"`.
+- Mongo write failure during AI ingest: rollback dependent writes where possible;
+  do not leave orphan highlights.
+- Missing environment variables in production: show a clear setup error for
+  ingest, but allow seeded read-only demo pages to load when possible.
+- Patient attempts restricted access: return filtered response or `403`,
+  depending on endpoint semantics.
+
+## Core Differentiators
+
+1. It does not summarize everything. It finds what changed.
+2. AI never becomes truth without clinical confirmation.
+3. Every signal is clickable back to its source.
+4. Recency matters, but clinical significance overrides recency.
+5. The system learns from clinical attention, not hidden assumptions.
+
+## Update Rule
+
+Any new implementation decision, product idea, scope tradeoff, or architecture
+change discussed during the build should be added to this document so the final
+README and technical brief stay consistent with the actual implementation.
