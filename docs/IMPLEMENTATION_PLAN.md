@@ -675,3 +675,30 @@ README and technical brief stay consistent with the actual implementation.
 - `tests/test_delta_engine.py` covers all six categories, deterministic risk
   floors, low-confidence abstention, review-queue routing, conflicting-signal
   handling, explainability fields, and exclusion from the glance card.
+
+### Phase 9: Self-Learning, Conflict Detection, and Data Decay
+
+- Added server-recorded `pin`, `comment`, `edit`, and source `highlight`
+  interaction events. Pin/highlight actions have an explicit scoped endpoint;
+  comment and edit events are emitted by their existing server-side mutations,
+  so the learning signal does not depend on client claims.
+- Personal ranking uses only the current actor's prior events. Pin, comment,
+  edit, and highlight-view weights are positive and bounded to a combined
+  maximum boost of 12 points. Explanations use stable labels such as
+  `boosted_by_prior_pins`; learning never changes clinical risk or trust state.
+- Added deterministic allergy, medication/dose, and open-task conflict
+  detection during AI ingest. Every detected conflict preserves exactly two
+  timeline source IDs, is stored with the aggregate in MemoryRepository and
+  MongoDB Atlas, and appears as `review needed` with two independent source
+  jump actions in the frontend.
+- Added bounded data decay for routine historical signals: 180-day information
+  receives a six-point ranking reduction and 365-day information a twelve-point
+  reduction while its source remains preserved. High-risk, contradicted, and
+  unresolved safety information is exempt from decay and can never be lowered
+  by learning behavior.
+- The synthetic record includes a clinician-confirmed April 2025 baseline
+  signal. It remains accessible as summarized historical context and visibly
+  explains its age-based ranking adjustment.
+- `tests/test_self_learning_importance.py` proves the boost cap, prior-pin
+  explanation, safety non-degradation, historical decay, all four interaction
+  event types, and two-source allergy/medication/task conflict creation.

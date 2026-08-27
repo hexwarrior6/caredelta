@@ -338,11 +338,11 @@ def test_glance_is_paginated_and_ranked_by_importance_after_ingest(
         f"/api/patients/{PATIENT_ID}/record?highlight_page_size=2", headers=headers()
     ).json()
     assert len(record["highlights"]) == 2
-    assert [item["importance_score"] for item in record["highlights"]] == [100, 94]
+    assert [item["importance_score"] for item in record["highlights"]] == [100, 98]
     assert record["highlight_pagination"] == {
         "page": 1,
         "page_size": 2,
-        "total_items": 3,
+        "total_items": 4,
         "total_pages": 2,
     }
 
@@ -350,7 +350,7 @@ def test_glance_is_paginated_and_ranked_by_importance_after_ingest(
         f"/api/patients/{PATIENT_ID}/record?highlight_page=2&highlight_page_size=2",
         headers=headers(),
     ).json()
-    assert [item["importance_score"] for item in second_page["highlights"]] == [86]
+    assert [item["importance_score"] for item in second_page["highlights"]] == [86, 43]
     assert second_page["highlight_pagination"]["page"] == 2
 
 

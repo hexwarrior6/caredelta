@@ -64,7 +64,7 @@ def build_seed_record() -> PatientRecord:
         content=(
             "Asthma symptoms remain mild and exercise-related. Salbutamol is used "
             "about once weekly. Patient reports a penicillin allergy documented in "
-            "childhood; reaction details are unclear."
+            "childhood; reaction details are unclear. Amlodipine 5mg daily remains unchanged."
         ),
         visibility_scope=VisibilityScope.CLINICIAN,
         version=1,
@@ -176,6 +176,13 @@ def build_seed_record() -> PatientRecord:
         "ai_scribed_note",
         "session-syn-260206",
     )
+    baseline = _provenance(
+        "prov-baseline-reliever",
+        april_entry,
+        "Salbutamol is used about once weekly.",
+        "clinician_note",
+        april_entry.id,
+    )
 
     return PatientRecord(
         patient=Patient(
@@ -234,6 +241,22 @@ def build_seed_record() -> PatientRecord:
                 abstention_reason="Not promoted to the glance card: conflicting clinical evidence.",
                 provenance_pointer=allergy,
                 created_at=_dt("2026-02-06T08:15:00"),
+            ),
+            Highlight(
+                id="highlight-baseline-history",
+                patient_id=PATIENT_ID,
+                text="Historical baseline: reliever used about once weekly",
+                category=SignalCategory.CONFIRMED,
+                risk_level=RiskLevel.LOW,
+                risk_reason="Preserved as historical context rather than a current action.",
+                trust_status=TrustStatus.CLINICIAN_CONFIRMED,
+                importance_score=55,
+                base_importance_score=55,
+                extraction_confidence="high",
+                confidence_reason="The baseline frequency is explicit in a clinician-authored source.",
+                importance_reason="Low-risk confirmed baseline retained for longitudinal comparison.",
+                provenance_pointer=baseline,
+                created_at=_dt("2025-04-15T02:35:00"),
             ),
         ],
         tasks=[
@@ -340,10 +363,10 @@ def build_seed_record() -> PatientRecord:
                 patient_id=PATIENT_ID,
                 actor_id="clinician-syn-lim",
                 actor_role=AuthorRole.CLINICIAN,
-                event_type="pin_highlight",
+                event_type="pin",
                 highlight_id="highlight-reliever",
-                extracted_topic="asthma_reliever_frequency",
-                weight_delta=0.15,
+                extracted_topic="worsening",
+                weight_delta=4,
                 created_at=_dt("2026-08-27T01:35:00"),
             )
         ],

@@ -109,6 +109,11 @@ class Highlight(BaseModel):
     risk_reason: str
     trust_status: TrustStatus
     importance_score: int = Field(ge=0, le=100)
+    base_importance_score: int | None = Field(default=None, ge=0, le=100)
+    learning_boost: int = Field(default=0, ge=0, le=12)
+    learning_reason: str | None = None
+    decay_adjustment: int = Field(default=0, ge=-15, le=0)
+    decay_reason: str | None = None
     extraction_confidence: ExtractionConfidence = ExtractionConfidence.HIGH
     confidence_reason: str = "Direct, source-backed clinical statement."
     importance_reason: str = "Ranked from risk, category, and extraction confidence."
@@ -252,6 +257,10 @@ class UpdateCommentStatusRequest(BaseModel):
     resolved: bool
 
 
+class CreateInteractionRequest(BaseModel):
+    event_type: Literal["pin", "highlight"]
+
+
 AIInteractionType = Literal[
     "ai_doctor_consult_summary",
     "ai_nurse_consult_summary",
@@ -286,3 +295,4 @@ class AIIngestResponse(BaseModel):
     redacted_phi_types: list[str]
     promoted_count: int
     review_queue_count: int
+    conflicts: list[Conflict]

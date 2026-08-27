@@ -362,10 +362,33 @@ export function PatientRecord() {
 
   function revealSource(highlight: Highlight) {
     setFocusedHighlight(highlight);
+    void recordHighlightInteraction(highlight, "highlight");
     requestAnimationFrame(() => {
       document
         .getElementById(highlight.provenance_pointer.entry_id)
         ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
+  async function recordHighlightInteraction(
+    highlight: Highlight,
+    eventType: "pin" | "highlight",
+  ) {
+    try {
+      await postJson(
+        `/api/patients/${patientId}/highlights/${highlight.id}/interactions`,
+        { event_type: eventType },
+      );
+      await loadRecord(undefined, highlightPage);
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to record interaction");
+    }
+  }
+
+  function revealConflictSource(entryId: string) {
+    setFocusedHighlight(null);
+    requestAnimationFrame(() => {
+      document.getElementById(entryId)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
   }
 
@@ -502,10 +525,8 @@ export function PatientRecord() {
               </div>
             )}
             {record.highlights.map((highlight) => (
-              <button
+              <article
                 key={highlight.id}
-                type="button"
-                onClick={() => revealSource(highlight)}
                 className="group p-6 text-left transition hover:bg-white/[0.06] sm:p-8"
               >
                 <div className="flex items-center justify-between gap-3">
@@ -523,14 +544,38 @@ export function PatientRecord() {
                   <span className="text-teal-100/70">
                     {trustLabel(highlight.trust_status)} · {highlight.extraction_confidence} extraction · {provenanceLabel(highlight.provenance_pointer.offset_confidence)}
                   </span>
-                  <span className="font-semibold text-teal-300 group-hover:text-white">View source ↓</span>
+                  <span className="font-semibold text-teal-300">Effective importance</span>
                 </div>
                 <div className="mt-4 space-y-1.5 border-t border-white/10 pt-4 text-xs leading-5 text-teal-100/65">
                   <p><span className="font-semibold text-teal-200">Risk:</span> {highlight.risk_floor_reason ?? highlight.risk_reason}</p>
                   <p><span className="font-semibold text-teal-200">Confidence:</span> {highlight.confidence_reason}</p>
                   <p><span className="font-semibold text-teal-200">Importance:</span> {highlight.importance_reason}</p>
+                  {highlight.learning_boost > 0 && (
+                    <p className="text-emerald-300"><span className="font-semibold">Learning +{highlight.learning_boost}:</span> {highlight.learning_reason}</p>
+                  )}
+                  {highlight.decay_reason && (
+                    <p><span className="font-semibold text-teal-200">Data decay {highlight.decay_adjustment}:</span> {highlight.decay_reason}</p>
+                  )}
                 </div>
-              </button>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => revealSource(highlight)}
+                    className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold text-teal-200 hover:bg-white/10 hover:text-white"
+                  >
+                    Highlight source ↓
+                  </button>
+                  {(role === "clinician" || role === "admin") && (
+                    <button
+                      type="button"
+                      onClick={() => void recordHighlightInteraction(highlight, "pin")}
+                      className="rounded-lg bg-teal-300 px-3 py-2 text-xs font-semibold text-teal-950 hover:bg-white"
+                    >
+                      Pin +4
+                    </button>
+                  )}
+                </div>
+              </article>
             ))}
           </div>
           {record.highlight_pagination.total_pages > 1 && (
@@ -986,11 +1031,33 @@ export function PatientRecord() {
               </div>
             </section>
 
-            {record.conflicts[0] && (
+            {record.conflicts.length > 0 && (
               <section className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
                 <p className="text-xs font-semibold uppercase tracking-wider text-rose-600">Conflict review</p>
-                <p className="mt-3 text-sm font-semibold leading-6 text-rose-950">{record.conflicts[0].summary}</p>
-                <p className="mt-3 text-xs text-rose-700">Two source entries preserved · no silent overwrite</p>
+                <div className="mt-3 space-y-4">
+                  {record.conflicts.map((conflict) => (
+                    <div key={conflict.id} className="rounded-xl border border-rose-200 bg-white p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold uppercase text-rose-600">{conflict.conflict_type} · review needed</span>
+                        <span className="text-[11px] font-semibold uppercase text-rose-400">{conflict.severity}</span>
+                      </div>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-rose-950">{conflict.summary}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        {conflict.source_entry_ids.slice(0, 2).map((entryId, index) => (
+                          <button
+                            key={entryId}
+                            type="button"
+                            onClick={() => revealConflictSource(entryId)}
+                            className="rounded-lg border border-rose-200 px-2 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                          >
+                            Source {index + 1} ↑
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-rose-700">Both source entries are preserved · no silent overwrite</p>
               </section>
             )}
 

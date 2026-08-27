@@ -46,6 +46,11 @@ export type Highlight = {
   risk_reason: string;
   trust_status: "ai_suggested" | "clinician_confirmed" | "needs_review";
   importance_score: number;
+  base_importance_score: number | null;
+  learning_boost: number;
+  learning_reason: string | null;
+  decay_adjustment: number;
+  decay_reason: string | null;
   extraction_confidence: ExtractionConfidence;
   confidence_reason: string;
   importance_reason: string;
@@ -105,6 +110,7 @@ export type Comment = {
 
 export type Conflict = {
   id: string;
+  conflict_type: "allergy" | "medication" | "task" | string;
   summary: string;
   severity: RiskLevel;
   status: string;
@@ -151,4 +157,5 @@ export type AIIngestResult = {
   redacted_phi_types: string[];
   promoted_count: number;
   review_queue_count: number;
+  conflicts: Conflict[];
 };

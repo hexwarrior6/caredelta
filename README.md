@@ -210,6 +210,14 @@ confidence. Low-confidence or conflicting signals abstain from the glance card
 and remain source-backed in a clinician review queue, with plain-language
 explanations for risk, confidence, and ranking.
 
+The radar learns conservatively from clinician behavior. Pins, comments, edits,
+and source highlights provide a per-user positive ranking boost capped at 12
+points, with explanations such as `boosted_by_prior_pins`; they never lower or
+rewrite clinical risk. Allergy, medication, and open-task conflicts are placed
+in review with both sources preserved. Routine old signals receive bounded data
+decay, while high-risk, contradicted, and unresolved safety information is
+exempt from age-based downgrading.
+
 ## Access control
 
 The backend enforces an action matrix for `patient`, `staff`, `clinician`, and

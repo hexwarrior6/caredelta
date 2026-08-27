@@ -8,6 +8,7 @@ from app.models import (
     VisibilityScope,
 )
 from app.services.delta_engine import is_glance_eligible
+from app.services.self_learning import apply_bounded_learning
 
 
 def paginate_glance_highlights(highlights, page: int, page_size: int):
@@ -67,8 +68,11 @@ def filter_patient_record(
 
     # A signal is hidden when its source entry is hidden. This prevents provenance
     # metadata from becoming a side channel for restricted note content.
+    actor_events = [
+        event for event in record.interaction_events if event.actor_id == context.actor_id
+    ]
     visible_highlights = [
-        highlight
+        apply_bounded_learning(highlight, actor_events)
         for highlight in record.highlights
         if highlight.provenance_pointer.entry_id in visible_entry_ids
     ]
