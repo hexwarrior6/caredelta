@@ -67,12 +67,17 @@ logic, access control, provenance, audit behavior, and future AI ingestion.
 ### Environment configuration
 
 ```bash
-cp backend/.env.example backend/.env
-cp frontend/.env.local.example frontend/.env.local
+cp backend/.env.example backend/.env.local
+cp backend/.env.production.example backend/.env.production
+cp frontend/.env.development.example frontend/.env.development
+cp frontend/.env.production.example frontend/.env.production
 ```
 
-Replace placeholder values in `backend/.env` when using MongoDB or DeepSeek.
-Never commit real credentials.
+Use `backend/.env.local` for local development. `backend/.env.production` is an
+ignored local reference for production values and can be loaded locally with
+`CAREDELTA_ENV_FILE=.env.production`; Railway itself must receive the same values
+through its Variables settings. Replace all credential placeholders and never
+commit either real environment file.
 
 ### Start the backend
 
@@ -195,7 +200,10 @@ Import the same GitHub repository into Vercel with:
 - Root Directory: `frontend`
 - Framework Preset: Next.js
 - Production branch: `main`
-- Environment variable: `NEXT_PUBLIC_API_URL=<Railway public backend URL>`
+- Development/Preview `NEXT_PUBLIC_API_URL`:
+  `https://caredelta-development.up.railway.app`
+- Production `NEXT_PUBLIC_API_URL`:
+  `https://caredelta-production.up.railway.app`
 
 Vercel creates preview deployments for pull requests and production deployments
 from `main`. Keep production and preview variables separate. Preview pages that

@@ -85,6 +85,9 @@ Selected delivery pipeline:
   persistent Railway service from the `/backend` monorepo root.
 - The Next.js frontend is deployed from `/frontend` on Vercel to retain native
   Next.js builds and automatic pull-request preview deployments.
+- Vercel Development and Preview environments call
+  `https://caredelta-development.up.railway.app`; Vercel Production calls
+  `https://caredelta-production.up.railway.app`.
 - Railway and Vercel GitHub autodeploys must deploy production from `main` only.
 - Railway `Wait for CI` must be enabled so a failing GitHub check prevents the
   backend deployment. Branch protection on `main` should require both CI jobs.
