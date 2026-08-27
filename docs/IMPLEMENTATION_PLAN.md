@@ -456,3 +456,29 @@ README and technical brief stay consistent with the actual implementation.
   default fast development bundler.
 - MongoDB, RBAC, clinical services, provenance, and LLM integration remain out
   of scope for Phase 1 and are not yet implemented.
+
+### Phase 2: Core Models and Synthetic Record
+
+- Added Pydantic domain models for `Patient`, `TimelineEntry`, `Highlight`,
+  `ProvenancePointer`, `Comment`, `Task`, `Version`, `AuditLog`,
+  `InteractionEvent`, and `Conflict`.
+- Added a repository protocol and an in-process `MemoryRepository`. It returns
+  defensive copies so API consumers cannot mutate repository state by reference.
+- Added a deterministic synthetic record for `patient-syn-001`, including
+  clinician, staff, patient, and AI-scribed timeline entries across multiple
+  dates.
+- Added `GET /api/patients/{patient_id}/record` as the Phase 2 aggregate read
+  endpoint. It returns precomputed highlights and tasks with the complete linked
+  record needed by the patient page.
+- Local CORS accepts both `localhost:3000` and `127.0.0.1:3000`, in addition to
+  the configured frontend origin, so browser-based development works with either
+  standard loopback hostname.
+- Every seeded highlight has an exact `ProvenancePointer` with entry ID, source
+  quote, and character offsets. Automated tests assert that every pointer resolves
+  back to the exact timeline span.
+- The frontend now renders a 10-second glance card, open actions, conflict state,
+  comments, and the longitudinal timeline. Selecting a highlight scrolls to and
+  marks its precise source span.
+- Phase 2 intentionally does not implement persistence, mutation endpoints,
+  server-side RBAC enforcement, or real AI ingest. Those remain subsequent-phase
+  work and the current seed resets whenever the FastAPI process restarts.
