@@ -53,6 +53,12 @@ class ProvenanceConfidence(StrEnum):
     LOW = "low"
 
 
+class ExtractionConfidence(StrEnum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
 class Patient(BaseModel):
     id: str
     clinic_id: str
@@ -103,6 +109,13 @@ class Highlight(BaseModel):
     risk_reason: str
     trust_status: TrustStatus
     importance_score: int = Field(ge=0, le=100)
+    extraction_confidence: ExtractionConfidence = ExtractionConfidence.HIGH
+    confidence_reason: str = "Direct, source-backed clinical statement."
+    importance_reason: str = "Ranked from risk, category, and extraction confidence."
+    risk_floor_applied: bool = False
+    risk_floor_reason: str | None = None
+    abstained_from_glance: bool = False
+    abstention_reason: str | None = None
     provenance_pointer: ProvenancePointer
     created_at: datetime
 
@@ -198,6 +211,7 @@ class PatientRecord(BaseModel):
     audit_logs: list[AuditLog]
     interaction_events: list[InteractionEvent]
     conflicts: list[Conflict]
+    review_queue: list[Highlight] = Field(default_factory=list)
     generated_at: datetime
     highlight_pagination: HighlightPagination = Field(
         default_factory=lambda: HighlightPagination(
@@ -270,3 +284,5 @@ class AIIngestResponse(BaseModel):
     ] | None = None
     summary: str
     redacted_phi_types: list[str]
+    promoted_count: int
+    review_queue_count: int

@@ -648,3 +648,30 @@ README and technical brief stay consistent with the actual implementation.
   first page fast to scan while allowing clinicians to browse every lower-ranked
   signal through compact previous/next controls with the current page indicator.
   Timeline history remains intact.
+
+### Phase 8: Delta Engine, Evaluation, and Abstention
+
+- Added a deterministic Delta Engine between extraction and persistence. Every
+  signal uses one of six longitudinal categories: `new`, `worsening`,
+  `recurring`, `unresolved`, `contradicted`, or `confirmed`.
+- DeepSeek now returns extraction confidence and a short confidence reason as
+  part of its strict JSON contract. The deterministic extractor labels explicit
+  keyword matches as medium confidence and generic unmatched content as low
+  confidence rather than overstating certainty.
+- Risk floors are enforced after model extraction. Safety-critical and
+  contradictory language cannot fall below high risk; worsening symptoms and
+  unresolved care actions cannot fall below medium risk. The persisted signal
+  records whether a floor changed the proposed risk and explains why.
+- Importance is recomputed by the backend from the final risk, delta category,
+  and extraction confidence. The model-proposed score is never trusted as the
+  final ranking, and every stored score includes a human-readable calculation.
+- The abstention policy prevents low extraction confidence, low provenance
+  confidence, and contradicted evidence from entering the 10-second glance.
+  These source-backed signals are preserved as `needs_review` and returned in a
+  separate care-team review queue; patient views do not expose that queue.
+- The frontend glance explains risk, confidence, importance, trust status, and
+  provenance confidence. A dedicated Review queue shows conflicting or
+  low-confidence signals with the abstention reason and a source jump action.
+- `tests/test_delta_engine.py` covers all six categories, deterministic risk
+  floors, low-confidence abstention, review-queue routing, conflicting-signal
+  handling, explainability fields, and exclusion from the glance card.

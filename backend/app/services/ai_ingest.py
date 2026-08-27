@@ -8,7 +8,7 @@ from urllib import request
 import phonenumbers
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from app.models import RiskLevel, SignalCategory
+from app.models import ExtractionConfidence, RiskLevel, SignalCategory
 
 
 class AISignal(BaseModel):
@@ -19,6 +19,8 @@ class AISignal(BaseModel):
     risk_level: RiskLevel
     risk_reason: str = Field(min_length=1, max_length=500)
     importance_score: int = Field(ge=0, le=100)
+    extraction_confidence: ExtractionConfidence
+    confidence_reason: str = Field(min_length=1, max_length=500)
     source_snippet: str = Field(min_length=1, max_length=1_000)
 
 
@@ -213,7 +215,7 @@ def fallback_extract(sanitized_transcript: str) -> AIExtraction:
     ]
     rules = (
         (
-            re.compile(r"(?i)reliever|inhaler|wheez|breath"),
+            re.compile(r"(?i)reliever|inhaler|wheez|breath|worsen"),
             SignalCategory.WORSENING,
             RiskLevel.HIGH,
             "Respiratory symptom or reliever-use language needs clinical review.",
@@ -233,6 +235,20 @@ def fallback_extract(sanitized_transcript: str) -> AIExtraction:
             "An outstanding action may require care-team follow-up.",
             76,
         ),
+        (
+            re.compile(r"(?i)again|recur|returned|repeated|another episode"),
+            SignalCategory.RECURRING,
+            RiskLevel.MEDIUM,
+            "A recurring clinical pattern may need longitudinal review.",
+            72,
+        ),
+        (
+            re.compile(r"(?i)confirmed|verified|clinician agrees|test shows"),
+            SignalCategory.CONFIRMED,
+            RiskLevel.LOW,
+            "The source explicitly confirms a previously uncertain fact.",
+            60,
+        ),
     )
     signals: list[AISignal] = []
     for sentence in sentences:
@@ -250,6 +266,8 @@ def fallback_extract(sanitized_transcript: str) -> AIExtraction:
                         risk_level=risk,
                         risk_reason=reason,
                         importance_score=score,
+                        extraction_confidence=ExtractionConfidence.MEDIUM,
+                        confidence_reason="Deterministic keyword rule matched an exact source sentence.",
                         source_snippet=sentence[:1_000],
                     )
                 )
@@ -261,6 +279,8 @@ def fallback_extract(sanitized_transcript: str) -> AIExtraction:
             SignalCategory.WORSENING: "Worsening symptoms requiring review",
             SignalCategory.CONTRADICTED: "Clinical discrepancy requiring review",
             SignalCategory.UNRESOLVED: "Outstanding follow-up action",
+            SignalCategory.RECURRING: "Recurring clinical pattern",
+            SignalCategory.CONFIRMED: "Confirmed clinical update",
             SignalCategory.NEW: "New clinical update",
         }
         primary_signal = max(signals, key=lambda signal: signal.importance_score)
@@ -280,6 +300,8 @@ def fallback_extract(sanitized_transcript: str) -> AIExtraction:
                 risk_level=RiskLevel.LOW,
                 risk_reason="New AI-scribed information requires human review.",
                 importance_score=50,
+                extraction_confidence=ExtractionConfidence.LOW,
+                confidence_reason="No specific deterministic clinical rule matched this text.",
                 source_snippet=snippet,
             )
         ],

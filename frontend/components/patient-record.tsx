@@ -487,7 +487,7 @@ export function PatientRecord() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-300">10-second glance · {role} view</p>
               <h2 className="mt-2 text-2xl font-semibold">What changed and needs action</h2>
-              <p className="mt-2 text-xs text-teal-200/70">Backend-ranked by urgency · 3 signals per page</p>
+              <p className="mt-2 text-xs text-teal-200/70">Trust-filtered and backend-ranked · 3 signals per page</p>
             </div>
             <p className="max-w-xl text-sm leading-6 text-teal-100/75">{patient.summary}</p>
           </div>
@@ -521,9 +521,14 @@ export function PatientRecord() {
                 <p className="mt-3 text-sm leading-6 text-teal-100/70">{highlight.risk_reason}</p>
                 <div className="mt-5 flex items-center justify-between text-xs">
                   <span className="text-teal-100/70">
-                    {trustLabel(highlight.trust_status)} · {provenanceLabel(highlight.provenance_pointer.offset_confidence)}
+                    {trustLabel(highlight.trust_status)} · {highlight.extraction_confidence} extraction · {provenanceLabel(highlight.provenance_pointer.offset_confidence)}
                   </span>
                   <span className="font-semibold text-teal-300 group-hover:text-white">View source ↓</span>
+                </div>
+                <div className="mt-4 space-y-1.5 border-t border-white/10 pt-4 text-xs leading-5 text-teal-100/65">
+                  <p><span className="font-semibold text-teal-200">Risk:</span> {highlight.risk_floor_reason ?? highlight.risk_reason}</p>
+                  <p><span className="font-semibold text-teal-200">Confidence:</span> {highlight.confidence_reason}</p>
+                  <p><span className="font-semibold text-teal-200">Importance:</span> {highlight.importance_reason}</p>
                 </div>
               </button>
             ))}
@@ -678,7 +683,9 @@ export function PatientRecord() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-slate-900">{ingestResult.entry.title}</p>
-                        <p className="mt-1 text-xs font-medium text-slate-500">Ingest complete · {ingestResult.highlights.length} highlight(s)</p>
+                        <p className="mt-1 text-xs font-medium text-slate-500">
+                          Ingest complete · {ingestResult.promoted_count} promoted · {ingestResult.review_queue_count} queued for review
+                        </p>
                         <p className="mt-1 text-sm text-slate-600">{ingestResult.summary}</p>
                       </div>
                       <span className={`rounded-full px-3 py-1 text-xs font-semibold ${ingestResult.extraction_method === "deepseek" ? "bg-emerald-200 text-emerald-900" : "bg-amber-200 text-amber-900"}`}>
@@ -925,6 +932,41 @@ export function PatientRecord() {
           </section>
 
           <aside className="space-y-5 lg:sticky lg:top-6 lg:self-start">
+            {role !== "patient" && (
+              <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Review queue</p>
+                    <h2 className="mt-1 font-semibold text-amber-950">Abstained signals</h2>
+                  </div>
+                  <span className="grid h-7 min-w-7 place-items-center rounded-full bg-amber-200 px-2 text-xs font-bold text-amber-900">{record.review_queue.length}</span>
+                </div>
+                {record.review_queue.length === 0 ? (
+                  <p className="mt-4 text-sm leading-6 text-amber-800/75">No low-confidence or conflicting signals need review.</p>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    {record.review_queue.map((highlight) => (
+                      <button
+                        key={highlight.id}
+                        type="button"
+                        onClick={() => revealSource(highlight)}
+                        className="w-full rounded-xl border border-amber-200 bg-white p-4 text-left transition hover:border-amber-400"
+                      >
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase">
+                          <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">Review needed</span>
+                          <span className="text-amber-700">{categoryLabels[highlight.category]}</span>
+                          <span className="text-slate-400">{highlight.extraction_confidence} confidence</span>
+                        </div>
+                        <p className="mt-3 text-sm font-semibold leading-5 text-slate-900">{highlight.text}</p>
+                        <p className="mt-2 text-xs leading-5 text-slate-600">{highlight.abstention_reason ?? highlight.confidence_reason}</p>
+                        <p className="mt-2 text-xs font-semibold text-amber-700">Inspect source →</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <h2 className="font-semibold text-slate-950">Open actions</h2>

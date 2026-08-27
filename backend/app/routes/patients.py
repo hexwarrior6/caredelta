@@ -38,6 +38,7 @@ from app.models import (
 from app.repositories import PatientRecordRepository, VersionConflictError
 from app.services.patient_records import entry_action, filter_patient_record
 from app.services.ai_ingest import LLMAdapter, extract_with_fallback, redact_phi
+from app.services.delta_engine import evaluate_signal
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
 
@@ -120,16 +121,30 @@ def ingest_ai_scribed_note(
     highlights: list[Highlight] = []
     for signal in extraction.signals:
         start = entry.content.index(signal.source_snippet)
+        evaluation = evaluate_signal(
+            text=signal.text,
+            category=signal.category,
+            proposed_risk=signal.risk_level,
+            extraction_confidence=signal.extraction_confidence,
+            provenance_confidence=ProvenanceConfidence.HIGH,
+        )
         highlights.append(
             Highlight(
                 id=f"highlight-{uuid4()}",
                 patient_id=patient_id,
                 text=signal.text,
                 category=signal.category,
-                risk_level=signal.risk_level,
+                risk_level=evaluation.risk_level,
                 risk_reason=signal.risk_reason,
-                trust_status=TrustStatus.AI_SUGGESTED,
-                importance_score=signal.importance_score,
+                trust_status=evaluation.trust_status,
+                importance_score=evaluation.importance_score,
+                extraction_confidence=signal.extraction_confidence,
+                confidence_reason=signal.confidence_reason,
+                importance_reason=evaluation.importance_reason,
+                risk_floor_applied=evaluation.risk_floor_applied,
+                risk_floor_reason=evaluation.risk_floor_reason,
+                abstained_from_glance=evaluation.abstained_from_glance,
+                abstention_reason=evaluation.abstention_reason,
                 provenance_pointer=ProvenancePointer(
                     id=f"provenance-{uuid4()}",
                     patient_id=patient_id,
@@ -182,6 +197,8 @@ def ingest_ai_scribed_note(
         fallback_reason=fallback_reason,
         summary=extraction.summary,
         redacted_phi_types=redaction.redacted_phi_types,
+        promoted_count=sum(not item.abstained_from_glance for item in highlights),
+        review_queue_count=sum(item.abstained_from_glance for item in highlights),
     )
 
 

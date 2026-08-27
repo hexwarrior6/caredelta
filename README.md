@@ -203,6 +203,13 @@ idempotent by interaction type plus source ID; duplicate or concurrent
 submissions return `409 Conflict` before creating another timeline entry or
 highlight set.
 
+CareDelta's Delta Engine classifies longitudinal change as new, worsening,
+recurring, unresolved, contradicted, or confirmed. It applies deterministic
+risk floors and recomputes importance from risk, category, and extraction
+confidence. Low-confidence or conflicting signals abstain from the glance card
+and remain source-backed in a clinician review queue, with plain-language
+explanations for risk, confidence, and ranking.
+
 ## Access control
 
 The backend enforces an action matrix for `patient`, `staff`, `clinician`, and
