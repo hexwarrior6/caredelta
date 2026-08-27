@@ -665,7 +665,7 @@ export function PatientRecord() {
                     </button>
                   </div>
 
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex h-full flex-col rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Text sent to LLM</p>
                       {redactionPreview && (
@@ -677,8 +677,8 @@ export function PatientRecord() {
                       )}
                     </div>
                     {redactionPreview ? (
-                      <>
-                        <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-4 text-xs leading-6 text-slate-100">{redactionPreview.redacted_text}</pre>
+                      <div className="mt-3 flex min-h-0 flex-1 flex-col">
+                        <pre className="min-h-72 flex-1 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-4 text-xs leading-6 text-slate-100">{redactionPreview.redacted_text}</pre>
                         {redactionPreview.warning && (
                           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">Redaction warning: {redactionPreview.warning}</p>
                         )}
@@ -688,9 +688,9 @@ export function PatientRecord() {
                         >
                           {busy ? "Running ingest…" : "Run ingest"}
                         </button>
-                      </>
+                      </div>
                     ) : (
-                      <div className="mt-3 grid min-h-72 place-items-center rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm leading-6 text-slate-500">
+                      <div className="mt-3 grid min-h-72 flex-1 place-items-center rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm leading-6 text-slate-500">
                         Preview redaction before enabling AI ingest.
                       </div>
                     )}
