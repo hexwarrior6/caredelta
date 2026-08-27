@@ -43,6 +43,10 @@ in control of what becomes trusted clinical memory.
 - Explicit conflict records for information that requires reconciliation
 - Server-enforced role and clinic boundaries for patient, staff, clinician, and
   admin access
+- A passwordless demo landing page with three synthetic patients and dedicated
+  staff, clinician, and admin identities
+- A PHI-redacted patient AI assistant whose saved conversations can be promoted
+  into source-backed patient-session timeline entries
 - Deterministic synthetic data for safe local development and demonstration
 
 Application runtimes persist patient records in MongoDB Atlas through
@@ -116,11 +120,24 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Select a signal in the
+Open [http://localhost:3000](http://localhost:3000). Choose one of the six demo
+identities and use its automatically filled access key. Patient identities open
+only their own records; care-team identities can switch among the three
+synthetic patient workspaces. Logging out clears the local session and returns
+to the landing page. Select a signal in the
 glance card to jump to and highlight its supporting text in the timeline. The
 source marker shows the provenance confidence carried by the backend pointer.
-Use the demo role preview to add a staff note, assign an `@clinician` comment,
-then switch to the clinician view to resolve or reopen the handoff.
+Sign in as staff to add a note and assign an `@clinician` comment, then log out
+and sign in as the clinician to resolve or reopen the handoff.
+
+Patient identities also have an **Ask about your care** workspace. Each question
+is redacted locally in the backend before it is sent to DeepSeek, and the
+redacted patient/assistant exchange is stored with that patient's record. The
+patient must explicitly choose **Add to record** before the conversation creates
+a timeline entry. At that point the existing ingest pipeline extracts candidate
+signals only from patient-authored statements, creates exact provenance
+pointers, and routes untrusted signals to care-team review; AI assistant wording
+is never treated as a patient clinical fact.
 
 ## API
 
@@ -133,10 +150,13 @@ curl http://localhost:8000/health
 Fetch the complete synthetic patient record:
 
 ```bash
+TOKEN=$(curl -s http://localhost:8000/api/demo/login \
+  -H "Content-Type: application/json" \
+  -d '{"identity_id":"clinician-syn-lim","demo_key":"CLINICIAN-DEMO-2026"}' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+
 curl \
-  -H "X-Actor-Id: clinician-syn-lim" \
-  -H "X-Actor-Role: clinician" \
-  -H "X-Clinic-Id: clinic-syn-orchard" \
+  -H "Authorization: Bearer $TOKEN" \
   http://localhost:8000/api/patients/patient-syn-001/record
 ```
 
@@ -225,12 +245,12 @@ exempt from age-based downgrading.
 
 The backend enforces an action matrix for `patient`, `staff`, `clinician`, and
 `admin`, and every patient operation is restricted to the actor's clinic. The
-local demo sends mock identity claims through `X-Actor-Id`, `X-Actor-Role`, and
-`X-Clinic-Id`; a production deployment must replace this transport with verified
-session or token claims.
-
-The role switcher in the frontend is a preview tool. It requests a role-filtered
-record from the backend and is never treated as an authorization decision.
+landing page exposes synthetic identities and prefilled keys for a frictionless
+demo, but login is still checked by the API and returns an expiring HMAC-signed
+bearer session. A patient token is bound to exactly one patient ID; changing the
+browser URL cannot expose another record. The frontend switcher is navigation
+only and is never an authorization source. Legacy identity headers are disabled
+at runtime and enabled only inside isolated automated tests.
 
 ## Quality checks
 
@@ -287,6 +307,8 @@ Set these Railway variables without committing their values:
 - `DEEPSEEK_MAX_TOKENS` — optional; defaults to `1200`
 - `CAREDELTA_FRONTEND_ORIGIN` — the production Vercel URL
 - `CAREDELTA_FRONTEND_ORIGIN_REGEX` — optional, tightly scoped preview URL regex
+- `DEMO_AUTH_SECRET` — long random secret used to sign demo sessions
+- `ALLOW_LEGACY_AUTH_HEADERS` — keep `false` outside automated tests
 
 Generate a public Railway domain after the deployment passes its health check.
 

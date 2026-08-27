@@ -1,5 +1,2 @@
-import { PatientRecord } from "@/components/patient-record";
-
-export default function Home() {
-  return <PatientRecord />;
-}
+import { DemoLogin } from "@/components/demo-login";
+export default function Home() { return <DemoLogin />; }

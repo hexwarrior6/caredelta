@@ -5,6 +5,7 @@ from app.models import (
     HighlightPagination,
     PatientRecord,
     TimelineEntry,
+    UserRole,
     VisibilityScope,
 )
 from app.services.delta_engine import is_glance_eligible
@@ -136,6 +137,11 @@ def filter_patient_record(
             "audit_logs": audit_logs,
             "interaction_events": interaction_events,
             "conflicts": conflicts,
+            "patient_chat_sessions": (
+                record.patient_chat_sessions
+                if context.role in {UserRole.PATIENT, UserRole.CLINICIAN, UserRole.ADMIN}
+                else []
+            ),
             "review_queue": sorted(
                 review_queue,
                 key=lambda highlight: (highlight.importance_score, highlight.created_at),

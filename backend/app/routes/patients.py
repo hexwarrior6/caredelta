@@ -24,6 +24,11 @@ from app.models import (
     CreateEntryRequest,
     CreateInteractionRequest,
     PatientRecord,
+    PatientChatIngestResponse,
+    PatientChatMessage,
+    PatientChatRequest,
+    PatientChatResponse,
+    PatientChatSession,
     Highlight,
     InteractionEvent,
     ProvenanceConfidence,
@@ -101,6 +106,116 @@ def preview_ai_ingest_redaction(
     )
 
 
+@router.post("/{patient_id}/ai-chat", response_model=PatientChatResponse)
+def chat_with_patient_assistant(
+    patient_id: str,
+    payload: PatientChatRequest,
+    repository: Annotated[PatientRecordRepository, Depends(get_repository)],
+    adapter: Annotated[LLMAdapter | None, Depends(get_llm_adapter)],
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+) -> PatientChatResponse:
+    record = repository.get_patient_record(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+    require_clinic_scope(context, record.patient.clinic_id)
+    require_action(context, Action.PATIENT_AI_CHAT)
+    if adapter is None or not hasattr(adapter, "chat"):
+        raise HTTPException(status_code=503, detail="DeepSeek patient assistant is unavailable")
+
+    session = next(
+        (item for item in record.patient_chat_sessions if item.id == payload.session_id),
+        None,
+    )
+    if payload.session_id and session is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if session and session.ingested_entry_id:
+        raise HTTPException(status_code=409, detail="This conversation is already in the record")
+
+    now = datetime.now(timezone.utc)
+    redaction = redact_phi(payload.message, record.patient.display_name)
+    if session is None:
+        session = PatientChatSession(
+            id=f"patient-chat-{uuid4()}",
+            patient_id=patient_id,
+            title=redaction.text.strip()[:80] or "Patient AI conversation",
+            created_at=now,
+            updated_at=now,
+        )
+
+    llm_messages = [
+        {"role": "user" if message.role == "patient" else "assistant", "content": message.content}
+        for message in session.messages[-12:]
+    ]
+    llm_messages.append({"role": "user", "content": redaction.text})
+    clinical_context = (
+        f"Summary: {record.patient.summary}\n"
+        f"Active conditions: {', '.join(record.patient.active_conditions)}\n"
+        f"Allergies: {', '.join(record.patient.allergies)}"
+    )
+    try:
+        answer = adapter.chat(llm_messages, clinical_context)  # type: ignore[attr-defined]
+    except Exception as error:
+        raise HTTPException(status_code=503, detail="DeepSeek could not answer right now") from error
+
+    session.messages.extend(
+        [
+            PatientChatMessage(
+                id=f"chat-message-{uuid4()}", role="patient", content=redaction.text, created_at=now
+            ),
+            PatientChatMessage(
+                id=f"chat-message-{uuid4()}", role="assistant", content=answer, created_at=datetime.now(timezone.utc)
+            ),
+        ]
+    )
+    session.updated_at = datetime.now(timezone.utc)
+    repository.save_patient_chat_session(session)
+    return PatientChatResponse(session=session, redacted_phi_types=redaction.redacted_phi_types)
+
+
+@router.post(
+    "/{patient_id}/ai-chat/{session_id}/ingest",
+    response_model=PatientChatIngestResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def ingest_patient_chat(
+    patient_id: str,
+    session_id: str,
+    repository: Annotated[PatientRecordRepository, Depends(get_repository)],
+    adapter: Annotated[LLMAdapter | None, Depends(get_llm_adapter)],
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+) -> PatientChatIngestResponse:
+    record = repository.get_patient_record(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+    require_clinic_scope(context, record.patient.clinic_id)
+    require_action(context, Action.PATIENT_AI_CHAT)
+    session = next((item for item in record.patient_chat_sessions if item.id == session_id), None)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if session.ingested_entry_id:
+        raise HTTPException(status_code=409, detail="This conversation is already in the record")
+
+    transcript = "\n".join(
+        f"{'Patient' if message.role == 'patient' else 'AI assistant'}: {message.content}"
+        for message in session.messages
+    )
+    result = ingest_ai_scribed_note(
+        patient_id,
+        AIIngestRequest(
+            transcript=transcript,
+            source_id=session.id,
+            interaction_type="ai_patient_session_summary",
+        ),
+        repository,
+        adapter,
+        context,
+    )
+    session.ingested_entry_id = result.entry.id
+    session.updated_at = datetime.now(timezone.utc)
+    repository.save_patient_chat_session(session)
+    return PatientChatIngestResponse(**result.model_dump(), session=session)
+
+
 @router.post(
     "/{patient_id}/ai-ingest",
     response_model=AIIngestResponse,
@@ -118,6 +233,11 @@ def ingest_ai_scribed_note(
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
     require_action(context, Action.INGEST_AI_NOTE)
+    if context.role == UserRole.PATIENT and payload.interaction_type != "ai_patient_session_summary":
+        raise HTTPException(
+            status_code=403,
+            detail="Patients may ingest only their own patient-session conversations",
+        )
 
     ingest_key = f"{payload.interaction_type}:{payload.source_id}"
     if any(
@@ -131,7 +251,13 @@ def ingest_ai_scribed_note(
         )
 
     redaction = redact_phi(payload.transcript, record.patient.display_name)
-    extraction, method, fallback_reason = extract_with_fallback(adapter, redaction.text)
+    extraction_source = redaction.text
+    if context.role == UserRole.PATIENT:
+        patient_lines = [
+            line for line in redaction.text.splitlines() if line.startswith("Patient: ")
+        ]
+        extraction_source = "\n".join(patient_lines) or redaction.text
+    extraction, method, fallback_reason = extract_with_fallback(adapter, extraction_source)
     now = datetime.now(timezone.utc)
     entry = TimelineEntry(
         id=f"entry-{uuid4()}",
@@ -141,10 +267,18 @@ def ingest_ai_scribed_note(
         author_id="system-ai-scribe",
         author_name="AI Scribe",
         timestamp=now,
-        entry_type=payload.interaction_type,
+        entry_type=(
+            "patient_session_summary"
+            if context.role == UserRole.PATIENT
+            else payload.interaction_type
+        ),
         title=extraction.title,
         content=redaction.text,
-        visibility_scope=VisibilityScope.CLINICIAN,
+        visibility_scope=(
+            VisibilityScope.CARE_TEAM
+            if context.role == UserRole.PATIENT
+            else VisibilityScope.CLINICIAN
+        ),
         version=1,
         source_label=f"{payload.interaction_type} · {payload.source_id}",
     )
@@ -281,6 +415,8 @@ def create_highlight_interaction(
 
 
 def require_entry_edit(context: AuthContext, entry: TimelineEntry) -> None:
+    if context.role == UserRole.ADMIN:
+        return
     if entry.entry_type == "staff_note":
         require_action(context, Action.EDIT_STAFF_NOTE)
         if context.role == UserRole.STAFF and entry.author_id != context.actor_id:
@@ -291,6 +427,11 @@ def require_entry_edit(context: AuthContext, entry: TimelineEntry) -> None:
         return
     if entry.entry_type in {"clinician_note", "clinician_section"}:
         require_action(context, Action.EDIT_CLINICIAN_SECTION)
+        if entry.author_id != context.actor_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Clinicians can edit only their own clinician notes",
+            )
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
