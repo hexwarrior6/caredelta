@@ -61,14 +61,6 @@ const fallbackLabels: Record<NonNullable<AIIngestResult["fallback_reason"]>, str
   provenance_unresolved: "LLM provenance could not be resolved",
 };
 
-const syntheticIngestExample = `Patient name: Elaine Tan. Phone: +65 9123 4567. Patient ID: S1234567D. Email: elaine.tan@example.com.
-
-The patient reports waking with wheeze on three nights during the past week. Reliever inhaler was used every day, compared with once or twice weekly last month. She is comfortable at rest and reports no severe breathlessness.
-
-Spirometry has not yet been booked. The patient is waiting for the clinic to confirm an appointment and would prefer Tuesday afternoon.
-
-The patient says she previously tolerated amoxicillin, but the existing record lists a penicillin allergy with an unclear reaction. This discrepancy requires clinician review before the allergy record is changed.`;
-
 function formatDate(value: string, includeTime = false) {
   return new Intl.DateTimeFormat("en-SG", {
     day: "2-digit",
@@ -135,9 +127,8 @@ export function PatientRecord() {
   const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
   const [showAIIngest, setShowAIIngest] = useState(false);
   const [interactionType, setInteractionType] = useState<AIInteractionType>("ai_doctor_consult_summary");
-  const [ingestTitle, setIngestTitle] = useState("AI-scribed consultation");
-  const [sourceId, setSourceId] = useState("");
-  const [transcript, setTranscript] = useState(syntheticIngestExample);
+  const [sourceId, setSourceId] = useState(() => crypto.randomUUID());
+  const [transcript, setTranscript] = useState("");
   const [redactionPreview, setRedactionPreview] = useState<AIRedactionPreview | null>(null);
   const [ingestResult, setIngestResult] = useState<AIIngestResult | null>(null);
   const [highlightPage, setHighlightPage] = useState(1);
@@ -258,6 +249,16 @@ export function PatientRecord() {
     }
   }
 
+  function toggleAIIngest() {
+    if (!showAIIngest) {
+      setTranscript("");
+      setRedactionPreview(null);
+      setIngestResult(null);
+      setSourceId(crypto.randomUUID());
+    }
+    setShowAIIngest((current) => !current);
+  }
+
   async function runAIIngest(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!redactionPreview) return;
@@ -268,12 +269,12 @@ export function PatientRecord() {
         `/api/patients/${patientId}/ai-ingest`,
         {
           interaction_type: interactionType,
-          title: ingestTitle,
           source_id: sourceId,
           transcript,
         },
       );
       setIngestResult(result);
+      setSourceId(crypto.randomUUID());
       setHighlightPage(1);
       await loadRecord(undefined, 1);
       if (result.highlights[0]) setFocusedHighlight(result.highlights[0]);
@@ -569,7 +570,7 @@ export function PatientRecord() {
                 {(role === "clinician" || role === "admin") && (
                   <button
                     type="button"
-                    onClick={() => setShowAIIngest((current) => !current)}
+                    onClick={toggleAIIngest}
                     className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100"
                   >
                     {showAIIngest ? "Close AI ingest" : "Ingest AI note"}
@@ -613,34 +614,9 @@ export function PatientRecord() {
                         <option key={value} value={value}>{label}</option>
                       ))}
                     </select>
-                    <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="ingest-title">Timeline title</label>
-                    <input
-                      id="ingest-title"
-                      required
-                      maxLength={160}
-                      value={ingestTitle}
-                      onChange={(event) => setIngestTitle(event.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-500"
-                    />
-                    <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="source-id">Source/session ID</label>
-                    <div className="mt-2 flex gap-2">
-                      <input
-                        id="source-id"
-                        required
-                        maxLength={160}
-                        value={sourceId}
-                        onChange={(event) => setSourceId(event.target.value)}
-                        placeholder="Unique source ID"
-                        className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm outline-none focus:border-violet-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setSourceId(`session-demo-${Date.now()}`)}
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                      >
-                        Generate
-                      </button>
-                    </div>
+                    <p className="mt-3 rounded-lg border border-violet-100 bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-800">
+                      The timeline title and source ID are generated automatically during ingest.
+                    </p>
                     <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="ai-transcript">Synthetic transcript or note</label>
                     <textarea
                       id="ai-transcript"
@@ -686,7 +662,7 @@ export function PatientRecord() {
                           disabled={busy}
                           className="mt-4 w-full rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-600 disabled:opacity-50"
                         >
-                          {busy ? "Running ingest…" : "Run ingest"}
+                          {busy ? "Extracting…" : "Extract signals & generate title"}
                         </button>
                       </div>
                     ) : (
@@ -701,7 +677,8 @@ export function PatientRecord() {
                   <div className={`border-t px-5 py-4 ${ingestResult.extraction_method === "deepseek" ? "border-emerald-100 bg-emerald-50" : "border-amber-100 bg-amber-50"}`}>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <p className="text-sm font-semibold text-slate-900">Ingest complete · {ingestResult.highlights.length} highlight(s)</p>
+                        <p className="text-sm font-semibold text-slate-900">{ingestResult.entry.title}</p>
+                        <p className="mt-1 text-xs font-medium text-slate-500">Ingest complete · {ingestResult.highlights.length} highlight(s)</p>
                         <p className="mt-1 text-sm text-slate-600">{ingestResult.summary}</p>
                       </div>
                       <span className={`rounded-full px-3 py-1 text-xs font-semibold ${ingestResult.extraction_method === "deepseek" ? "bg-emerald-200 text-emerald-900" : "bg-amber-200 text-amber-900"}`}>

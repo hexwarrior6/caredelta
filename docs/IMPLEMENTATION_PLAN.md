@@ -620,11 +620,15 @@ README and technical brief stay consistent with the actual implementation.
   event, and one or more `ai_suggested` highlights with exact provenance
   pointers. Supported entry types are doctor consult, nurse consult, and patient
   session summaries.
-- Added the complete clinician/admin ingest panel: interaction selection,
-  transcript and source inputs, redaction warning/preview, Run ingest action,
-  extraction summary, DeepSeek/fallback indicator, and explicit timeout,
-  invalid-JSON, unavailable-LLM, and unresolved-provenance states. Successful
-  ingest refreshes timeline and glance data and focuses the new source entry.
+- Added the complete clinician/admin ingest panel: interaction selection, an
+  initially empty transcript input, redaction warning/preview, extraction
+  action, generated-title result, DeepSeek/fallback indicator, and explicit
+  timeout, invalid-JSON, unavailable-LLM, and unresolved-provenance states.
+  Source IDs are generated invisibly for idempotency instead of being exposed
+  as clinical form input. DeepSeek generates a PHI-free title in the same
+  structured extraction call; deterministic fallback derives a stable title
+  from the highest-priority signal. Successful ingest refreshes timeline and
+  glance data and focuses the new source entry.
 - `tests/test_ai_ingest.py` uses mock adapters and `MemoryRepository` to prove
   that name, phone, ID, and email values never reach the adapter; invalid JSON,
   timeouts, and ungrounded provenance trigger fallback; every generated signal

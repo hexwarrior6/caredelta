@@ -29,6 +29,7 @@ def headers(role: str = "clinician") -> dict[str, str]:
 
 def successful_extraction() -> AIExtraction:
     return AIExtraction(
+        title="Increased reliever use",
         summary="Reliever use increased.",
         signals=[
             AISignal(
@@ -77,6 +78,7 @@ def test_llm_receives_no_name_phone_id_or_email(repository: MemoryRepository) ->
 
     assert response.status_code == 201
     assert response.json()["extraction_method"] == "deepseek"
+    assert response.json()["entry"]["title"] == "Increased reliever use"
     assert set(response.json()["redacted_phi_types"]) == {
         "email",
         "id",
@@ -113,6 +115,7 @@ def test_deepseek_failure_creates_fallback_highlight_and_system_entry(
     assert payload["highlights"]
     assert payload["entry"]["author_role"] == "system"
     assert payload["entry"]["entry_type"] == "ai_nurse_consult_summary"
+    assert payload["entry"]["title"] == "Worsening symptoms requiring review"
     pointer = payload["highlights"][0]["provenance_pointer"]
     assert pointer["entry_id"] == payload["entry"]["id"]
     assert payload["entry"]["content"][pointer["start_offset"] : pointer["end_offset"]] == pointer["source_quote"]
@@ -363,6 +366,7 @@ def test_singapore_name_and_local_phone_failure_case_is_fully_redacted(
         "Nurse: Patient also mentioned she missed two doses of her blood pressure medication this week."
     )
     extraction = AIExtraction(
+        title="Exertional breathlessness",
         summary="Respiratory symptoms require review.",
         signals=[
             AISignal(

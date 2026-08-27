@@ -257,7 +257,6 @@ class AIRedactionPreviewResponse(BaseModel):
 
 class AIIngestRequest(BaseModel):
     transcript: str = Field(min_length=1, max_length=50_000)
-    title: str = Field(default="AI-scribed consultation", min_length=1, max_length=160)
     source_id: str = Field(min_length=1, max_length=160)
     interaction_type: AIInteractionType
 
