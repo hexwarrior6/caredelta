@@ -573,3 +573,16 @@ README and technical brief stay consistent with the actual implementation.
   in protected version snapshots, never in audit metadata.
 - The timeline UI offers role-authorized editing, a previous/current comparison,
   complete version metadata, and explicit revert controls.
+
+### Phase 6: Provenance and Highlight Jump
+
+- `ProvenancePointer.offset_confidence` is now a constrained high/medium/low
+  value, not an arbitrary string.
+- Every seeded highlight stores a pointer to its source timeline entry, source
+  quote, source metadata, and exact character span.
+- `tests/test_highlight_provenance.py` verifies that every returned highlight
+  resolves to the exact timeline substring and that Scenario A uses the reliever
+  highlight to jump to the patient check-in source span.
+- The glance card displays provenance confidence. Clicking a highlight scrolls
+  to the source timeline entry, marks the supporting text span, and displays the
+  confidence beside the source label.

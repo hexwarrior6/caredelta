@@ -60,6 +60,10 @@ function trustLabel(status: Highlight["trust_status"]) {
   return "AI suggested";
 }
 
+function provenanceLabel(confidence: Highlight["provenance_pointer"]["offset_confidence"]) {
+  return `${confidence} provenance`;
+}
+
 function TimelineContent({
   entry,
   focusedPointer,
@@ -399,7 +403,9 @@ export function PatientRecord() {
                 <h3 className="mt-2 text-lg font-semibold leading-snug">{highlight.text}</h3>
                 <p className="mt-3 text-sm leading-6 text-teal-100/70">{highlight.risk_reason}</p>
                 <div className="mt-5 flex items-center justify-between text-xs">
-                  <span className="text-teal-100/70">{trustLabel(highlight.trust_status)}</span>
+                  <span className="text-teal-100/70">
+                    {trustLabel(highlight.trust_status)} · {provenanceLabel(highlight.provenance_pointer.offset_confidence)}
+                  </span>
                   <span className="font-semibold text-teal-300 group-hover:text-white">View source ↓</span>
                 </div>
               </button>
@@ -493,7 +499,11 @@ export function PatientRecord() {
                       </p>
                       <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500">
                         <span>{entry.source_label}</span>
-                        {isFocused && <span className="font-semibold text-amber-700">Exact source · high confidence</span>}
+                        {isFocused && focusedHighlight && (
+                          <span className="font-semibold text-amber-700">
+                            Exact source · {focusedHighlight.provenance_pointer.offset_confidence} confidence
+                          </span>
+                        )}
                         {canEditEntry(entry) && (
                           <button
                             type="button"

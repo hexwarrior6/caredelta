@@ -47,6 +47,12 @@ class TrustStatus(StrEnum):
     NEEDS_REVIEW = "needs_review"
 
 
+class ProvenanceConfidence(StrEnum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
 class Patient(BaseModel):
     id: str
     clinic_id: str
@@ -85,7 +91,7 @@ class ProvenancePointer(BaseModel):
     source_quote: str
     start_offset: int = Field(ge=0)
     end_offset: int = Field(ge=0)
-    offset_confidence: str
+    offset_confidence: ProvenanceConfidence
 
 
 class Highlight(BaseModel):

@@ -1,5 +1,6 @@
 export type RiskLevel = "low" | "medium" | "high";
 export type UserRole = "patient" | "staff" | "clinician" | "admin";
+export type ProvenanceConfidence = "high" | "medium" | "low";
 export type SignalCategory =
   | "new"
   | "worsening"
@@ -29,7 +30,7 @@ export type ProvenancePointer = {
   source_quote: string;
   start_offset: number;
   end_offset: number;
-  offset_confidence: string;
+  offset_confidence: ProvenanceConfidence;
 };
 
 export type Highlight = {

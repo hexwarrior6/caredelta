@@ -35,7 +35,8 @@ in control of what becomes trusted clinical memory.
 - Lightweight `@clinician` mentions, role assignment, and resolvable handoffs
 - Immutable full-snapshot revision history with previous/current comparison
 - Optimistic-concurrency editing and revert-as-a-new-version recovery
-- Exact provenance pointers from highlights to their source text
+- Exact provenance pointers from highlights to their source text, including
+  high/medium/low confidence
 - Open care-team tasks, comments, revision snapshots, and audit metadata
 - Explicit conflict records for information that requires reconciliation
 - Server-enforced role and clinic boundaries for patient, staff, clinician, and
@@ -114,7 +115,8 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). Select a signal in the
-glance card to jump to and highlight its exact supporting text in the timeline.
+glance card to jump to and highlight its supporting text in the timeline. The
+source marker shows the provenance confidence carried by the backend pointer.
 Use the demo role preview to add a staff note, assign an `@clinician` comment,
 then switch to the clinician view to resolve or reopen the handoff.
 
@@ -139,6 +141,11 @@ curl \
 The patient-record response includes the patient, highlights, provenance
 pointers, tasks, timeline entries, comments, versions, audit logs, interaction
 events, and conflicts.
+
+Each highlight includes a `provenance_pointer` with the source timeline entry,
+source quote, character offsets, source metadata, and a high/medium/low
+confidence value. The frontend uses this pointer to scroll from the glance card
+to the supporting timeline entry and mark the exact span.
 
 Staff, clinician, and admin views can create role-appropriate notes and internal
 comments through the timeline. Comment status is updated independently from the

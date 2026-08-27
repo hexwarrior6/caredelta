@@ -9,6 +9,7 @@ from app.models import (
     InteractionEvent,
     Patient,
     PatientRecord,
+    ProvenanceConfidence,
     ProvenancePointer,
     RiskLevel,
     SignalCategory,
@@ -45,7 +46,7 @@ def _provenance(
         source_quote=quote,
         start_offset=start,
         end_offset=start + len(quote),
-        offset_confidence="high",
+        offset_confidence=ProvenanceConfidence.HIGH,
     )
 
 
