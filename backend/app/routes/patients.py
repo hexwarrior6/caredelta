@@ -15,16 +15,19 @@ from app.models import (
     AuditLog,
     AuthContext,
     AuthorRole,
+    Comment,
+    CreateCommentRequest,
     CreateEntryRequest,
     PatientRecord,
     TimelineEntry,
     UpdateEntryRequest,
+    UpdateCommentStatusRequest,
     UserRole,
     Version,
     VisibilityScope,
 )
 from app.repositories import PatientRecordRepository, VersionConflictError
-from app.services.patient_records import filter_patient_record
+from app.services.patient_records import entry_action, filter_patient_record
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
 
@@ -96,6 +99,78 @@ def create_timeline_entry(
         source_label=f"{context.role.value.title()}-authored note",
     )
     return repository.add_timeline_entry(entry)
+
+
+@router.post(
+    "/{patient_id}/entries/{entry_id}/comments",
+    response_model=Comment,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_comment(
+    patient_id: str,
+    entry_id: str,
+    payload: CreateCommentRequest,
+    repository: Annotated[PatientRecordRepository, Depends(get_repository)],
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+) -> Comment:
+    record = repository.get_patient_record(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+    require_clinic_scope(context, record.patient.clinic_id)
+    require_action(context, Action.CREATE_INTERNAL_COMMENT)
+
+    entry = next((item for item in record.timeline_entries if item.id == entry_id), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Timeline entry not found")
+    require_action(context, entry_action(entry))
+
+    comment = Comment(
+        id=f"comment-{uuid4()}",
+        patient_id=patient_id,
+        entry_id=entry_id,
+        author_role=AuthorRole(context.role.value),
+        author_id=context.actor_id,
+        author_name=f"Demo {context.role.value.title()}",
+        body=payload.body,
+        created_at=datetime.now(timezone.utc),
+        resolved=False,
+        mentions=payload.mentions,
+        assigned_role=payload.assigned_role,
+    )
+    return repository.add_comment(comment)
+
+
+@router.patch(
+    "/{patient_id}/comments/{comment_id}",
+    response_model=Comment,
+)
+def update_comment_status(
+    patient_id: str,
+    comment_id: str,
+    payload: UpdateCommentStatusRequest,
+    repository: Annotated[PatientRecordRepository, Depends(get_repository)],
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+) -> Comment:
+    record = repository.get_patient_record(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+    require_clinic_scope(context, record.patient.clinic_id)
+    require_action(context, Action.RESOLVE_INTERNAL_COMMENT)
+
+    comment = next((item for item in record.comments if item.id == comment_id), None)
+    if comment is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    entry = next(
+        (item for item in record.timeline_entries if item.id == comment.entry_id), None
+    )
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Timeline entry not found")
+    require_action(context, entry_action(entry))
+
+    updated = repository.update_comment_status(patient_id, comment_id, payload.resolved)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return updated
 
 
 @router.patch("/{patient_id}/entries/{entry_id}", response_model=TimelineEntry)

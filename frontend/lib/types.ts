@@ -69,10 +69,13 @@ export type PatientTask = {
 export type Comment = {
   id: string;
   entry_id: string;
+  author_role: UserRole;
   author_name: string;
   body: string;
   created_at: string;
   resolved: boolean;
+  mentions: string[];
+  assigned_role: UserRole | null;
 };
 
 export type Conflict = {

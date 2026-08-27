@@ -31,6 +31,8 @@ in control of what becomes trusted clinical memory.
 - A concise top/glance card for high-priority clinical changes
 - A longitudinal timeline containing patient, staff, clinician, and AI-scribed
   entries
+- Shared staff and clinician notes with internal comment threads
+- Lightweight `@clinician` mentions, role assignment, and resolvable handoffs
 - Exact provenance pointers from highlights to their source text
 - Open care-team tasks, comments, revision snapshots, and audit metadata
 - Explicit conflict records for information that requires reconciliation
@@ -104,6 +106,8 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Select a signal in the
 glance card to jump to and highlight its exact supporting text in the timeline.
+Use the demo role preview to add a staff note, assign an `@clinician` comment,
+then switch to the clinician view to resolve or reopen the handoff.
 
 ## API
 
@@ -126,6 +130,10 @@ curl \
 The patient-record response includes the patient, highlights, provenance
 pointers, tasks, timeline entries, comments, versions, audit logs, interaction
 events, and conflicts.
+
+Staff, clinician, and admin views can create role-appropriate notes and internal
+comments through the timeline. Comment status is updated independently from the
+source note so collaboration never overwrites clinical content.
 
 ## Access control
 

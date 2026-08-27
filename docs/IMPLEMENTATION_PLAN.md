@@ -527,3 +527,16 @@ README and technical brief stay consistent with the actual implementation.
 - Added `tests/test_rbac_scope.py` covering patient data filtering, staff read
   filtering, forbidden cross-role writes, staff ownership, required auth context,
   and clinic isolation for all four roles.
+
+### Phase 4: Timeline and Collaboration
+
+- Timeline entries are returned newest-first across patient, staff, clinician,
+  and AI/system sources after server-side role filtering.
+- Staff and clinicians create notes in distinct protected sections; existing
+  ownership rules continue to prevent cross-role overwrites.
+- Internal comments support `mentions`, an optional `assigned_role`, and an
+  explicit resolved/unresolved status without mutating the source note.
+- Comment creation and status updates enforce the action matrix, clinic scope,
+  and visibility of the referenced timeline entry.
+- The demo UI supports the complete staff-to-clinician handoff: publish a staff
+  note, mention and assign a clinician, switch roles, then resolve or reopen it.

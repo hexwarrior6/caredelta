@@ -17,6 +17,7 @@ class Action(StrEnum):
     EDIT_STAFF_NOTE = "edit_staff_note"
     EDIT_CLINICIAN_SECTION = "edit_clinician_section"
     CREATE_INTERNAL_COMMENT = "create_internal_comment"
+    RESOLVE_INTERNAL_COMMENT = "resolve_internal_comment"
     ACCEPT_HIGHLIGHT = "accept_highlight"
     REJECT_HIGHLIGHT = "reject_highlight"
     PIN_HIGHLIGHT = "pin_highlight"
@@ -45,6 +46,9 @@ ACTION_MATRIX: dict[Action, frozenset[UserRole]] = {
         {UserRole.CLINICIAN, UserRole.ADMIN}
     ),
     Action.CREATE_INTERNAL_COMMENT: frozenset(
+        {UserRole.STAFF, UserRole.CLINICIAN, UserRole.ADMIN}
+    ),
+    Action.RESOLVE_INTERNAL_COMMENT: frozenset(
         {UserRole.STAFF, UserRole.CLINICIAN, UserRole.ADMIN}
     ),
     Action.ACCEPT_HIGHLIGHT: frozenset({UserRole.CLINICIAN, UserRole.ADMIN}),
