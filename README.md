@@ -33,6 +33,8 @@ in control of what becomes trusted clinical memory.
   entries
 - Shared staff and clinician notes with internal comment threads
 - Lightweight `@clinician` mentions, role assignment, and resolvable handoffs
+- Immutable full-snapshot revision history with previous/current comparison
+- Optimistic-concurrency editing and revert-as-a-new-version recovery
 - Exact provenance pointers from highlights to their source text
 - Open care-team tasks, comments, revision snapshots, and audit metadata
 - Explicit conflict records for information that requires reconciliation
@@ -141,6 +143,11 @@ events, and conflicts.
 Staff, clinician, and admin views can create role-appropriate notes and internal
 comments through the timeline. Comment status is updated independently from the
 source note so collaboration never overwrites clinical content.
+
+Editable notes expose their revision history in the timeline. Every edit creates
+a complete snapshot with an incremented version. Reverting restores a selected
+snapshot by creating another version, so historical states are never deleted or
+rewritten. Audit logs retain metadata only and never store raw note bodies.
 
 ## Access control
 

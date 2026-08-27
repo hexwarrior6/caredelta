@@ -8,6 +8,7 @@ import type {
   RiskLevel,
   TimelineEntry,
   UserRole,
+  Version,
 } from "@/lib/types";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -101,6 +102,9 @@ export function PatientRecord() {
   const [assignClinician, setAssignClinician] = useState(true);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editEntryId, setEditEntryId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
 
   const authHeaders = useCallback(
     () => ({
@@ -143,6 +147,19 @@ export function PatientRecord() {
     const grouped = new Map<string, Comment[]>();
     for (const comment of record?.comments ?? []) {
       grouped.set(comment.entry_id, [...(grouped.get(comment.entry_id) ?? []), comment]);
+    }
+    return grouped;
+  }, [record]);
+
+  const versionsByEntry = useMemo(() => {
+    const grouped = new Map<string, Version[]>();
+    for (const version of record?.versions ?? []) {
+      grouped.set(
+        version.entry_id,
+        [...(grouped.get(version.entry_id) ?? []), version].sort(
+          (left, right) => right.version_number - left.version_number,
+        ),
+      );
     }
     return grouped;
   }, [record]);
@@ -206,6 +223,38 @@ export function PatientRecord() {
       await mutate(`/api/patients/${patientId}/comments/${comment.id}`, "PATCH", {
         resolved: !comment.resolved,
       });
+    } catch {}
+  }
+
+  function canEditEntry(entry: TimelineEntry) {
+    if (role === "admin") {
+      return ["staff_note", "clinician_note", "clinician_section"].includes(entry.entry_type);
+    }
+    if (role === "staff") {
+      return entry.entry_type === "staff_note" && entry.author_id === demoActors.staff;
+    }
+    return role === "clinician" && ["clinician_note", "clinician_section"].includes(entry.entry_type);
+  }
+
+  async function submitEdit(event: React.FormEvent<HTMLFormElement>, entry: TimelineEntry) {
+    event.preventDefault();
+    try {
+      await mutate(`/api/patients/${patientId}/entries/${entry.id}`, "PATCH", {
+        content: editContent,
+        expected_version: entry.version,
+      });
+      setEditEntryId(null);
+      setHistoryEntryId(entry.id);
+    } catch {}
+  }
+
+  async function revertEntry(entry: TimelineEntry, targetVersion: number) {
+    try {
+      await mutate(`/api/patients/${patientId}/entries/${entry.id}/revert`, "POST", {
+        target_version: targetVersion,
+        expected_version: entry.version,
+      });
+      setHistoryEntryId(entry.id);
     } catch {}
   }
 
@@ -419,6 +468,10 @@ export function PatientRecord() {
             <div className="relative mt-6 space-y-5 before:absolute before:bottom-6 before:left-[19px] before:top-6 before:w-px before:bg-slate-200">
               {record.timeline_entries.map((entry) => {
                 const comments = commentsByEntry.get(entry.id) ?? [];
+                const versions = versionsByEntry.get(entry.id) ?? [];
+                const previousVersion = versions.find(
+                  (version) => version.version_number < entry.version,
+                );
                 const isFocused = focusedHighlight?.provenance_pointer.entry_id === entry.id;
                 return (
                   <article key={entry.id} id={entry.id} className="relative scroll-mt-8 pl-12">
@@ -441,7 +494,98 @@ export function PatientRecord() {
                       <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500">
                         <span>{entry.source_label}</span>
                         {isFocused && <span className="font-semibold text-amber-700">Exact source · high confidence</span>}
+                        {canEditEntry(entry) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditEntryId(entry.id);
+                              setEditContent(entry.content);
+                            }}
+                            className="ml-auto font-semibold text-teal-700 hover:text-teal-900"
+                          >
+                            Edit note
+                          </button>
+                        )}
+                        {versions.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setHistoryEntryId(
+                              historyEntryId === entry.id ? null : entry.id,
+                            )}
+                            className="font-semibold text-violet-700 hover:text-violet-900"
+                          >
+                            {historyEntryId === entry.id ? "Hide history" : `History (${versions.length})`}
+                          </button>
+                        )}
                       </div>
+
+                      {editEntryId === entry.id && canEditEntry(entry) && (
+                        <form onSubmit={(event) => void submitEdit(event, entry)} className="mt-4 rounded-xl border border-teal-200 bg-teal-50/50 p-4">
+                          <label className="text-xs font-semibold uppercase tracking-wide text-teal-800" htmlFor={`edit-${entry.id}`}>
+                            Edit version {entry.version + 1}
+                          </label>
+                          <textarea
+                            id={`edit-${entry.id}`}
+                            required
+                            value={editContent}
+                            onChange={(event) => setEditContent(event.target.value)}
+                            rows={4}
+                            className="mt-2 w-full rounded-lg border border-teal-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500"
+                          />
+                          <div className="mt-3 flex justify-end gap-2">
+                            <button type="button" onClick={() => setEditEntryId(null)} className="px-3 py-2 text-xs font-semibold text-slate-500">Cancel</button>
+                            <button disabled={busy} className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+                              {busy ? "Saving…" : "Save new version"}
+                            </button>
+                          </div>
+                        </form>
+                      )}
+
+                      {historyEntryId === entry.id && versions.length > 0 && (
+                        <section className="mt-4 rounded-xl border border-violet-200 bg-violet-50/60 p-4" aria-label={`Revision history for ${entry.title}`}>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Revision history</p>
+                              <p className="mt-1 text-xs text-slate-500">Revert always creates a new version.</p>
+                            </div>
+                            <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-violet-700">Current v{entry.version}</span>
+                          </div>
+
+                          {previousVersion && (
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                <p className="text-xs font-semibold text-slate-500">Previous · v{previousVersion.version_number}</p>
+                                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{previousVersion.content_snapshot}</p>
+                              </div>
+                              <div className="rounded-lg border border-teal-200 bg-white p-3">
+                                <p className="text-xs font-semibold text-teal-700">Current · v{entry.version}</p>
+                                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{entry.content}</p>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="mt-4 space-y-2">
+                            {versions.map((version) => (
+                              <div key={version.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-white px-3 py-2.5">
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-800">v{version.version_number} · {version.change_summary}</p>
+                                  <p className="mt-0.5 text-xs text-slate-400">{formatDate(version.created_at, true)} · {roleLabels[version.changed_by_role]}</p>
+                                </div>
+                                {version.version_number < entry.version && canEditEntry(entry) && (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => void revertEntry(entry, version.version_number)}
+                                    className="rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                                  >
+                                    Revert to v{version.version_number}
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      )}
                       {comments.map((comment) => (
                         <div key={comment.id} className={`mt-4 rounded-xl border p-4 ${comment.resolved ? "border-slate-200 bg-slate-50" : "border-indigo-100 bg-indigo-50/70"}`}>
                           <div className="flex items-center justify-between gap-3 text-xs">

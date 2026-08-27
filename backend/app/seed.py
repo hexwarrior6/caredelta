@@ -267,6 +267,28 @@ def build_seed_record() -> PatientRecord:
         ],
         versions=[
             Version(
+                id="version-april-001",
+                patient_id=PATIENT_ID,
+                entry_id=april_entry.id,
+                version_number=1,
+                content_snapshot=april_entry.content,
+                changed_by=april_entry.author_id,
+                changed_by_role=april_entry.author_role,
+                created_at=april_entry.timestamp,
+                change_summary="Clinician note created",
+            ),
+            Version(
+                id="version-august-001",
+                patient_id=PATIENT_ID,
+                entry_id=august_entry.id,
+                version_number=1,
+                content_snapshot=august_entry.content,
+                changed_by=august_entry.author_id,
+                changed_by_role=august_entry.author_role,
+                created_at=august_entry.timestamp,
+                change_summary="Staff note created",
+            ),
+            Version(
                 id="version-feb-001",
                 patient_id=PATIENT_ID,
                 entry_id=february_entry.id,

@@ -557,3 +557,19 @@ README and technical brief stay consistent with the actual implementation.
   `expected_version` match and write revision/audit data in the same update.
 - A live development-Atlas check confirmed one idempotent seed document, five
   timeline entries, successful model hydration, and all configured indexes.
+
+### Phase 5: Revision History and Revert
+
+- New editable notes create a complete version 1 snapshot; every edit atomically
+  increments the entry version and appends the complete resulting note snapshot.
+- Revert accepts a target version plus `expected_version`, restores the selected
+  snapshot, and appends a new higher version rather than changing old history.
+- Stale edits and reverts return `409 Conflict` through the same optimistic
+  concurrency boundary in `MemoryRepository` and `MongoRepository`.
+- Revision history has its own read action for staff, clinician, and admin roles;
+  entry visibility and existing ownership rules still constrain edit and revert.
+- Audit logs contain action, actor, entity, changed-field names, timestamps, and
+  request IDs only. Raw current, previous, and reverted note bodies live solely
+  in protected version snapshots, never in audit metadata.
+- The timeline UI offers role-authorized editing, a previous/current comparison,
+  complete version metadata, and explicit revert controls.

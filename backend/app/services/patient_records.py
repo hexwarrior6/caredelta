@@ -52,7 +52,7 @@ def filter_patient_record(record: PatientRecord, context: AuthContext) -> Patien
         version
         for version in record.versions
         if version.entry_id in visible_entry_ids
-        and can(context.role, Action.READ_AUDIT_LOG)
+        and can(context.role, Action.READ_REVISION_HISTORY)
     ]
     audit_logs = record.audit_logs if can(context.role, Action.READ_AUDIT_LOG) else []
     interaction_events = (

@@ -205,6 +205,11 @@ class UpdateEntryRequest(BaseModel):
     expected_version: int = Field(ge=1)
 
 
+class RevertEntryRequest(BaseModel):
+    target_version: int = Field(ge=1)
+    expected_version: int = Field(ge=1)
+
+
 class CreateCommentRequest(BaseModel):
     body: str = Field(min_length=1, max_length=5_000)
     mentions: list[str] = Field(default_factory=list)

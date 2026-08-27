@@ -13,7 +13,9 @@ class VersionConflictError(Exception):
 class PatientRecordRepository(Protocol):
     def get_patient_record(self, patient_id: str) -> PatientRecord | None: ...
 
-    def add_timeline_entry(self, entry: TimelineEntry) -> TimelineEntry: ...
+    def add_timeline_entry(
+        self, entry: TimelineEntry, version: Version, audit_log: AuditLog
+    ) -> TimelineEntry: ...
 
     def add_comment(self, comment: Comment) -> Comment: ...
 
@@ -42,9 +44,13 @@ class MemoryRepository:
         record = self._records.get(patient_id)
         return deepcopy(record) if record else None
 
-    def add_timeline_entry(self, entry: TimelineEntry) -> TimelineEntry:
+    def add_timeline_entry(
+        self, entry: TimelineEntry, version: Version, audit_log: AuditLog
+    ) -> TimelineEntry:
         record = self._records[entry.patient_id]
         record.timeline_entries.insert(0, deepcopy(entry))
+        record.versions.append(deepcopy(version))
+        record.audit_logs.append(deepcopy(audit_log))
         return deepcopy(entry)
 
     def add_comment(self, comment: Comment) -> Comment:
@@ -110,6 +116,44 @@ class MongoRepository:
             {"$setOnInsert": seed_record.model_dump(mode="python")},
             upsert=True,
         )
+        record = self.get_patient_record(seed_record.patient.id)
+        if record is None:
+            return
+        known_versions = {
+            (version.entry_id, version.version_number) for version in record.versions
+        }
+        missing_versions = [
+            Version(
+                id=f"version-backfill-{entry.id}-{entry.version}",
+                patient_id=record.patient.id,
+                entry_id=entry.id,
+                version_number=entry.version,
+                content_snapshot=entry.content,
+                changed_by=entry.author_id,
+                changed_by_role=entry.author_role,
+                created_at=entry.timestamp,
+                change_summary="Current snapshot backfilled during migration",
+            ).model_dump(mode="python")
+            for entry in record.timeline_entries
+            if entry.entry_type
+            in {"staff_note", "clinician_note", "clinician_section"}
+            and (entry.id, entry.version) not in known_versions
+        ]
+        for missing_version in missing_versions:
+            self._collection.update_one(
+                {
+                    "patient.id": record.patient.id,
+                    "versions": {
+                        "$not": {
+                            "$elemMatch": {
+                                "entry_id": missing_version["entry_id"],
+                                "version_number": missing_version["version_number"],
+                            }
+                        }
+                    },
+                },
+                {"$push": {"versions": missing_version}},
+            )
 
     def get_patient_record(self, patient_id: str) -> PatientRecord | None:
         document = self._collection.find_one(
@@ -117,7 +161,9 @@ class MongoRepository:
         )
         return PatientRecord.model_validate(document) if document else None
 
-    def add_timeline_entry(self, entry: TimelineEntry) -> TimelineEntry:
+    def add_timeline_entry(
+        self, entry: TimelineEntry, version: Version, audit_log: AuditLog
+    ) -> TimelineEntry:
         result = self._collection.update_one(
             {"patient.id": entry.patient_id},
             {
@@ -125,7 +171,9 @@ class MongoRepository:
                     "timeline_entries": {
                         "$each": [entry.model_dump(mode="python")],
                         "$position": 0,
-                    }
+                    },
+                    "versions": version.model_dump(mode="python"),
+                    "audit_logs": audit_log.model_dump(mode="python"),
                 }
             },
         )

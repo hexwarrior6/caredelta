@@ -47,6 +47,7 @@ export type Highlight = {
 export type TimelineEntry = {
   id: string;
   author_role: UserRole | "system";
+  author_id: string;
   author_name: string;
   timestamp: string;
   entry_type: string;
@@ -54,6 +55,17 @@ export type TimelineEntry = {
   content: string;
   version: number;
   source_label: string;
+};
+
+export type Version = {
+  id: string;
+  entry_id: string;
+  version_number: number;
+  content_snapshot: string;
+  changed_by: string;
+  changed_by_role: UserRole | "system";
+  created_at: string;
+  change_summary: string;
 };
 
 export type PatientTask = {
@@ -92,7 +104,7 @@ export type PatientRecord = {
   tasks: PatientTask[];
   timeline_entries: TimelineEntry[];
   comments: Comment[];
-  versions: unknown[];
+  versions: Version[];
   audit_logs: unknown[];
   interaction_events: unknown[];
   conflicts: Conflict[];
