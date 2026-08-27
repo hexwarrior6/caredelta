@@ -25,6 +25,7 @@ class AISignal(BaseModel):
 class AIExtraction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    title: str = Field(min_length=1, max_length=160)
     summary: str = Field(min_length=1, max_length=1_000)
     signals: list[AISignal] = Field(min_length=1, max_length=10)
 
@@ -80,7 +81,9 @@ class DeepSeekAdapter:
                     {
                         "role": "system",
                         "content": (
-                            "Extract candidate clinical changes. Return only JSON matching "
+                            "Generate a concise clinical timeline title and extract candidate "
+                            "clinical changes. The title must summarize the interaction without "
+                            "including PHI. Return only JSON matching "
                             f"this schema: {json.dumps(schema)}. Every source_snippet must be "
                             "an exact substring of the supplied redacted transcript. Do not "
                             "infer missing facts."
@@ -254,12 +257,21 @@ def fallback_extract(sanitized_transcript: str) -> AIExtraction:
         if len(signals) == 5:
             break
     if signals:
+        title_by_category = {
+            SignalCategory.WORSENING: "Worsening symptoms requiring review",
+            SignalCategory.CONTRADICTED: "Clinical discrepancy requiring review",
+            SignalCategory.UNRESOLVED: "Outstanding follow-up action",
+            SignalCategory.NEW: "New clinical update",
+        }
+        primary_signal = max(signals, key=lambda signal: signal.importance_score)
         return AIExtraction(
+            title=title_by_category[primary_signal.category],
             summary=f"Deterministic extractor found {len(signals)} clinical signal(s) for review.",
             signals=signals,
         )
     snippet = (sentences[0] if sentences else sanitized_transcript).strip()[:1_000]
     return AIExtraction(
+        title="New clinical update",
         summary="Deterministic note signal extracted for review.",
         signals=[
             AISignal(

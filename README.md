@@ -190,6 +190,12 @@ glance data refresh immediately, and generated highlights retain the existing
 click-to-source behavior. No API key is required by automated tests; they inject
 mock adapters and isolated memory data.
 
+The ingest form starts empty. The source/session identifier is generated
+automatically and kept out of the clinical UI, while DeepSeek produces the
+timeline title as part of the same structured extraction. If the LLM path is
+unavailable, the deterministic extractor supplies a stable title from the
+highest-priority source-backed signal.
+
 The 10-second glance shows three backend-ranked highlights per page. Signals are
 sorted by importance score and then recency, so clinicians see the most urgent
 changes first while retaining access to lower-ranked pages. AI ingest is

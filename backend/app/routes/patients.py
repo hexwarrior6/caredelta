@@ -111,7 +111,7 @@ def ingest_ai_scribed_note(
         author_name="AI Scribe",
         timestamp=now,
         entry_type=payload.interaction_type,
-        title=payload.title,
+        title=extraction.title,
         content=redaction.text,
         visibility_scope=VisibilityScope.CLINICIAN,
         version=1,
