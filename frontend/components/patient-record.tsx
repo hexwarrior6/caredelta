@@ -422,12 +422,14 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
 
   function canEditEntry(entry: TimelineEntry) {
     if (role === "admin") {
-      return ["staff_note", "clinician_note", "clinician_section"].includes(entry.entry_type);
+      return true;
     }
     if (role === "staff") {
       return entry.entry_type === "staff_note" && entry.author_id === session.identity.id;
     }
-    return role === "clinician" && ["clinician_note", "clinician_section"].includes(entry.entry_type);
+    return role === "clinician"
+      && entry.author_id === session.identity.id
+      && ["clinician_note", "clinician_section"].includes(entry.entry_type);
   }
 
   async function submitEdit(event: React.FormEvent<HTMLFormElement>, entry: TimelineEntry) {

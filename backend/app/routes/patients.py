@@ -415,6 +415,8 @@ def create_highlight_interaction(
 
 
 def require_entry_edit(context: AuthContext, entry: TimelineEntry) -> None:
+    if context.role == UserRole.ADMIN:
+        return
     if entry.entry_type == "staff_note":
         require_action(context, Action.EDIT_STAFF_NOTE)
         if context.role == UserRole.STAFF and entry.author_id != context.actor_id:
@@ -425,6 +427,11 @@ def require_entry_edit(context: AuthContext, entry: TimelineEntry) -> None:
         return
     if entry.entry_type in {"clinician_note", "clinician_section"}:
         require_action(context, Action.EDIT_CLINICIAN_SECTION)
+        if entry.author_id != context.actor_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Clinicians can edit only their own clinician notes",
+            )
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

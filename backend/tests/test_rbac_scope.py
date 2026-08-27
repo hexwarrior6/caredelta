@@ -101,6 +101,34 @@ def test_clinician_cannot_overwrite_staff_note() -> None:
     assert response.status_code == 403
 
 
+def test_clinician_can_edit_only_their_own_clinician_note() -> None:
+    own_note = client.patch(
+        f"/api/patients/{PATIENT_ID}/entries/entry-2025-04-15",
+        headers=headers("clinician", "clinician-syn-lim"),
+        json={"content": "Updated asthma review.", "expected_version": 1},
+    )
+    someone_elses_note = client.patch(
+        f"/api/patients/{PATIENT_ID}/entries/entry-2025-04-15",
+        headers=headers("clinician", "clinician-syn-other"),
+        json={"content": "Unauthorized overwrite.", "expected_version": 2},
+    )
+
+    assert own_note.status_code == 200
+    assert own_note.json()["version"] == 2
+    assert someone_elses_note.status_code == 403
+
+
+def test_admin_can_edit_any_timeline_entry_type() -> None:
+    response = client.patch(
+        f"/api/patients/{PATIENT_ID}/entries/entry-2026-08-26-patient",
+        headers=headers("admin", "admin-syn-morgan"),
+        json={"content": "Administrator-corrected patient entry.", "expected_version": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["version"] == 2
+
+
 def test_staff_can_edit_only_their_own_staff_note() -> None:
     allowed = client.patch(
         f"/api/patients/{PATIENT_ID}/entries/entry-2026-08-27",
