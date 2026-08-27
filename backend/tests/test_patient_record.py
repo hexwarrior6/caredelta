@@ -5,10 +5,17 @@ from app.seed import PATIENT_ID
 
 
 client = TestClient(app)
+AUTH_HEADERS = {
+    "X-Actor-Id": "clinician-syn-lim",
+    "X-Actor-Role": "clinician",
+    "X-Clinic-Id": "clinic-syn-orchard",
+}
 
 
 def test_complete_seed_patient_record_is_returned() -> None:
-    response = client.get(f"/api/patients/{PATIENT_ID}/record")
+    response = client.get(
+        f"/api/patients/{PATIENT_ID}/record", headers=AUTH_HEADERS
+    )
 
     assert response.status_code == 200
     record = response.json()
@@ -30,7 +37,9 @@ def test_complete_seed_patient_record_is_returned() -> None:
 
 
 def test_every_highlight_provenance_resolves_to_exact_timeline_span() -> None:
-    record = client.get(f"/api/patients/{PATIENT_ID}/record").json()
+    record = client.get(
+        f"/api/patients/{PATIENT_ID}/record", headers=AUTH_HEADERS
+    ).json()
     entries = {entry["id"]: entry for entry in record["timeline_entries"]}
 
     for highlight in record["highlights"]:
@@ -41,6 +50,6 @@ def test_every_highlight_provenance_resolves_to_exact_timeline_span() -> None:
 
 
 def test_unknown_patient_returns_404() -> None:
-    response = client.get("/api/patients/unknown/record")
+    response = client.get("/api/patients/unknown/record", headers=AUTH_HEADERS)
 
     assert response.status_code == 404

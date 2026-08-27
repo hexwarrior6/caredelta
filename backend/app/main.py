@@ -24,6 +24,7 @@ app.add_middleware(
             ]
         )
     ),
+    allow_origin_regex=settings.frontend_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

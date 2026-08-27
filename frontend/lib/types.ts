@@ -1,4 +1,5 @@
 export type RiskLevel = "low" | "medium" | "high";
+export type UserRole = "patient" | "staff" | "clinician" | "admin";
 export type SignalCategory =
   | "new"
   | "worsening"
@@ -45,7 +46,7 @@ export type Highlight = {
 
 export type TimelineEntry = {
   id: string;
-  author_role: "patient" | "staff" | "clinician" | "system";
+  author_role: UserRole | "system";
   author_name: string;
   timestamp: string;
   entry_type: string;

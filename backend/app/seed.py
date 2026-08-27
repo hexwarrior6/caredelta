@@ -126,8 +126,33 @@ def build_seed_record() -> PatientRecord:
         version=1,
         source_label="Synthetic patient session",
     )
+    instruction_entry = TimelineEntry(
+        id="entry-2026-08-27-instructions",
+        patient_id=PATIENT_ID,
+        clinic_id=CLINIC_ID,
+        author_role=AuthorRole.CLINICIAN,
+        author_id="clinician-syn-lim",
+        author_name="Dr. Maya Lim",
+        timestamp=_dt("2026-08-27T02:05:00"),
+        entry_type="patient_instruction",
+        title="Approved patient instructions",
+        content=(
+            "Continue the current inhalers as prescribed. Seek urgent care for "
+            "severe breathlessness, difficulty speaking, or symptoms not relieved "
+            "by the reliever inhaler. The clinic will contact you about spirometry."
+        ),
+        visibility_scope=VisibilityScope.PATIENT,
+        version=1,
+        source_label="Clinician-approved patient instruction",
+    )
 
-    timeline = [august_entry, patient_entry, february_entry, april_entry]
+    timeline = [
+        instruction_entry,
+        august_entry,
+        patient_entry,
+        february_entry,
+        april_entry,
+    ]
     daily_use = _provenance(
         "prov-daily-reliever",
         patient_entry,

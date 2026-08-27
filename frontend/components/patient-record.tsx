@@ -6,10 +6,19 @@ import type {
   PatientRecord as PatientRecordData,
   RiskLevel,
   TimelineEntry,
+  UserRole,
 } from "@/lib/types";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const patientId = "patient-syn-001";
+const clinicId = "clinic-syn-orchard";
+
+const demoActors: Record<UserRole, string> = {
+  patient: "patient-syn-001",
+  staff: "staff-syn-chen",
+  clinician: "clinician-syn-lim",
+  admin: "admin-syn-orchard",
+};
 
 const categoryLabels: Record<string, string> = {
   new: "New",
@@ -24,6 +33,7 @@ const roleLabels: Record<string, string> = {
   patient: "Patient",
   staff: "Staff",
   clinician: "Clinician",
+  admin: "Admin",
   system: "AI Scribe",
 };
 
@@ -78,6 +88,7 @@ function TimelineContent({
 }
 
 export function PatientRecord() {
+  const [role, setRole] = useState<UserRole>("clinician");
   const [record, setRecord] = useState<PatientRecordData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focusedHighlight, setFocusedHighlight] = useState<Highlight | null>(null);
@@ -87,8 +98,15 @@ export function PatientRecord() {
 
     async function loadRecord() {
       try {
+        setRecord(null);
+        setError(null);
         const response = await fetch(`${apiUrl}/api/patients/${patientId}/record`, {
           signal: controller.signal,
+          headers: {
+            "X-Actor-Id": demoActors[role],
+            "X-Actor-Role": role,
+            "X-Clinic-Id": clinicId,
+          },
         });
         if (!response.ok) throw new Error(`API returned HTTP ${response.status}`);
         setRecord((await response.json()) as PatientRecordData);
@@ -100,7 +118,7 @@ export function PatientRecord() {
 
     void loadRecord();
     return () => controller.abort();
-  }, []);
+  }, [role]);
 
   const commentsByEntry = useMemo(() => {
     return new Map(
@@ -160,9 +178,25 @@ export function PatientRecord() {
               <p className="text-xs text-slate-500">Clinical Change Radar</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            Live synthetic record
+          <div className="flex items-center gap-2">
+            <span className="hidden text-xs text-slate-400 sm:inline">Demo preview only</span>
+            <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1" aria-label="Preview role">
+              {(["patient", "staff", "clinician", "admin"] as UserRole[]).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setRole(item)}
+                  aria-pressed={role === item}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold capitalize transition sm:px-3 ${
+                    role === item
+                      ? "bg-teal-950 text-white shadow-sm"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </header>
@@ -199,13 +233,21 @@ export function PatientRecord() {
         <section className="mt-8 overflow-hidden rounded-3xl bg-teal-950 text-white shadow-2xl shadow-teal-950/15">
           <div className="flex flex-col justify-between gap-4 border-b border-white/10 px-6 py-6 sm:px-8 md:flex-row md:items-center">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-300">10-second glance</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-300">10-second glance · {role} view</p>
               <h2 className="mt-2 text-2xl font-semibold">What changed and needs action</h2>
             </div>
             <p className="max-w-xl text-sm leading-6 text-teal-100/75">{patient.summary}</p>
           </div>
 
           <div className="grid divide-y divide-white/10 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+            {record.highlights.length === 0 && (
+              <div className="p-8 lg:col-span-3">
+                <p className="font-semibold">No approved clinical signals in this view</p>
+                <p className="mt-2 text-sm text-teal-100/70">
+                  Restricted and unreviewed care-team content is filtered by the backend.
+                </p>
+              </div>
+            )}
             {record.highlights.map((highlight) => (
               <button
                 key={highlight.id}
@@ -305,11 +347,13 @@ export function PatientRecord() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-rose-600">Conflict review</p>
-              <p className="mt-3 text-sm font-semibold leading-6 text-rose-950">{record.conflicts[0]?.summary}</p>
-              <p className="mt-3 text-xs text-rose-700">Two source entries preserved · no silent overwrite</p>
-            </section>
+            {record.conflicts[0] && (
+              <section className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-rose-600">Conflict review</p>
+                <p className="mt-3 text-sm font-semibold leading-6 text-rose-950">{record.conflicts[0].summary}</p>
+                <p className="mt-3 text-xs text-rose-700">Two source entries preserved · no silent overwrite</p>
+              </section>
+            )}
 
             <p className="px-2 text-xs leading-5 text-slate-400">
               AI signals are candidates. Clinicians decide what becomes trusted clinical memory.

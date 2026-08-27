@@ -77,6 +77,23 @@ Runtime persistence:
 Vercel Next.js frontend -> Python API backend -> MongoDB Atlas
 ```
 
+Selected delivery pipeline:
+
+- GitHub Actions is the platform-independent quality gate for pushes and pull
+  requests to `development` and `main`.
+- The FastAPI backend is packaged as a non-root Docker image and deployed as a
+  persistent Railway service from the `/backend` monorepo root.
+- The Next.js frontend is deployed from `/frontend` on Vercel to retain native
+  Next.js builds and automatic pull-request preview deployments.
+- Railway and Vercel GitHub autodeploys must deploy production from `main` only.
+- Railway `Wait for CI` must be enabled so a failing GitHub check prevents the
+  backend deployment. Branch protection on `main` should require both CI jobs.
+- Deployment credentials live only in platform environment-variable stores.
+  GitHub Actions intentionally runs against `MemoryRepository` without external
+  service secrets.
+- The Railway `/health` check gates backend rollout. The frontend production
+  build is the Vercel deployment gate.
+
 If implementation time becomes tight, a Next.js-only backend remains a fallback.
 The preferred direction is Python backend plus Next frontend because the required
 micro-tests are backend-heavy and Python gives faster iteration for redaction,
@@ -482,3 +499,28 @@ README and technical brief stay consistent with the actual implementation.
 - Phase 2 intentionally does not implement persistence, mutation endpoints,
   server-side RBAC enforcement, or real AI ingest. Those remain subsequent-phase
   work and the current seed resets whenever the FastAPI process restarts.
+
+### Phase 3: RBAC and Role Preview
+
+- Added explicit `patient`, `staff`, `clinician`, and `admin` user roles, kept
+  separate from the `system` content-author role.
+- Added a server-side action matrix matching the documented read, write,
+  highlight, audit, comment, and rollback permissions.
+- Every patient read and mutation now requires an actor ID, role, and clinic ID;
+  all four roles, including admin, are rejected outside their clinic scope.
+- Patient-record responses are filtered server-side. Hidden entries also remove
+  dependent highlights, tasks, comments, versions, audit events, interactions,
+  and conflicts so provenance cannot leak restricted note content.
+- Patients receive only patient-authored summaries and clinician-approved
+  patient instructions; raw AI notes, internal comments, audit records, and
+  unreviewed highlights are excluded.
+- Added server-authorized create and edit endpoints for staff notes and clinician
+  sections. Staff can edit only their own staff notes; clinicians cannot overwrite
+  staff notes; staff cannot create or edit clinician sections; scoped admins can
+  manage either.
+- The frontend role switcher is explicitly a demo preview. It sends mock auth
+  headers, but the backend independently enforces every permission. Production
+  must replace these headers with verified session or signed-token claims.
+- Added `tests/test_rbac_scope.py` covering patient data filtering, staff read
+  filtering, forbidden cross-role writes, staff ownership, required auth context,
+  and clinic isolation for all four roles.

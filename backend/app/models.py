@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -8,7 +9,15 @@ class AuthorRole(StrEnum):
     PATIENT = "patient"
     STAFF = "staff"
     CLINICIAN = "clinician"
+    ADMIN = "admin"
     SYSTEM = "system"
+
+
+class UserRole(StrEnum):
+    PATIENT = "patient"
+    STAFF = "staff"
+    CLINICIAN = "clinician"
+    ADMIN = "admin"
 
 
 class VisibilityScope(StrEnum):
@@ -176,3 +185,20 @@ class PatientRecord(BaseModel):
     interaction_events: list[InteractionEvent]
     conflicts: list[Conflict]
     generated_at: datetime
+
+
+class AuthContext(BaseModel):
+    actor_id: str
+    role: UserRole
+    clinic_id: str
+
+
+class CreateEntryRequest(BaseModel):
+    section: Literal["staff_note", "clinician_section"]
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=10_000)
+
+
+class UpdateEntryRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=10_000)
+    expected_version: int = Field(ge=1)
