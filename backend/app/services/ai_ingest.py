@@ -111,6 +111,46 @@ class DeepSeekAdapter:
             content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content)
         return AIExtraction.model_validate_json(content)
 
+    def chat(self, messages: list[dict[str, str]], clinical_context: str) -> str:
+        body = json.dumps(
+            {
+                "model": self._model,
+                "temperature": 0.2,
+                "thinking": {"type": "disabled"},
+                "max_tokens": self._max_tokens,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are CareDelta's patient support assistant. Answer clearly and "
+                            "briefly using the supplied clinical context. Do not diagnose, change "
+                            "medication, or claim to replace a clinician. For severe breathing "
+                            "difficulty, chest pain, fainting, or other emergency signs, advise "
+                            "urgent local medical care. Ask the patient to confirm before adding "
+                            "the conversation to the clinical record. Clinical context:\n"
+                            f"{clinical_context}"
+                        ),
+                    },
+                    *messages,
+                ],
+            }
+        ).encode("utf-8")
+        http_request = request.Request(
+            self._url,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with request.urlopen(http_request, timeout=self._timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        content = payload["choices"][0]["message"]["content"].strip()
+        if not content:
+            raise ValueError("DeepSeek returned an empty chat response")
+        return content
+
 
 @dataclass(frozen=True)
 class RedactionResult:

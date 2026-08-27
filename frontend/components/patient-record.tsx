@@ -8,6 +8,7 @@ import type {
   Comment,
   Highlight,
   PatientRecord as PatientRecordData,
+  PatientChatResponse,
   RiskLevel,
   TimelineEntry,
   UserRole,
@@ -123,6 +124,9 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
   const [redactionPreview, setRedactionPreview] = useState<AIRedactionPreview | null>(null);
   const [ingestResult, setIngestResult] = useState<AIIngestResult | null>(null);
   const [highlightPage, setHighlightPage] = useState(1);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [chatMessage, setChatMessage] = useState("");
+  const [chatRedactions, setChatRedactions] = useState<string[]>([]);
 
   const authHeaders = useCallback(
     () => ({
@@ -272,6 +276,52 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
       }, 100);
     } catch (caught) {
       setMutationError(caught instanceof Error ? caught.message : "Unable to run AI ingest");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const activeChat = activeChatId === "new"
+    ? null
+    : record?.patient_chat_sessions.find((item) => item.id === activeChatId)
+      ?? record?.patient_chat_sessions[0]
+      ?? null;
+
+  async function sendPatientChat(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!chatMessage.trim()) return;
+    setBusy(true);
+    setMutationError(null);
+    try {
+      const result = await postJson<PatientChatResponse>(
+        `/api/patients/${patientId}/ai-chat`,
+        { message: chatMessage, session_id: activeChat?.id ?? null },
+      );
+      setActiveChatId(result.session.id);
+      setChatRedactions(result.redacted_phi_types);
+      setChatMessage("");
+      await loadRecord(undefined, highlightPage);
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to send message");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function ingestPatientChat() {
+    if (!activeChat) return;
+    setBusy(true);
+    setMutationError(null);
+    try {
+      const result = await postJson<AIIngestResult & { session: { id: string } }>(
+        `/api/patients/${patientId}/ai-chat/${activeChat.id}/ingest`,
+        {},
+      );
+      setHighlightPage(1);
+      await loadRecord(undefined, 1);
+      if (result.highlights[0]) setFocusedHighlight(result.highlights[0]);
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to add conversation to record");
     } finally {
       setBusy(false);
     }
@@ -597,6 +647,88 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
             </div>
           )}
         </section>
+
+        {role === "patient" && (
+          <section className="mt-8 overflow-hidden rounded-3xl border border-sky-200 bg-white shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-sky-100 bg-sky-50 px-5 py-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Patient AI assistant</p>
+                <h2 className="mt-1 text-xl font-semibold text-slate-950">Ask about your care</h2>
+                <p className="mt-1 text-sm text-slate-600">Questions are redacted before DeepSeek. You decide when a conversation becomes part of the clinical timeline.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveChatId("new");
+                  setChatRedactions([]);
+                }}
+                className="rounded-xl border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-sky-800 hover:bg-sky-100"
+              >
+                New conversation
+              </button>
+            </div>
+            <div className="grid lg:grid-cols-[220px_minmax(0,1fr)]">
+              <aside className="border-b border-slate-200 bg-slate-50 p-3 lg:border-b-0 lg:border-r">
+                <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Conversation history</p>
+                <div className="mt-2 flex gap-2 overflow-x-auto lg:block lg:space-y-2">
+                  {record.patient_chat_sessions.map((session) => (
+                    <button
+                      key={session.id}
+                      type="button"
+                      onClick={() => setActiveChatId(session.id)}
+                      className={`min-w-44 rounded-xl p-3 text-left text-xs lg:w-full ${activeChat?.id === session.id ? "bg-sky-100 text-sky-950" : "bg-white text-slate-600 hover:bg-slate-100"}`}
+                    >
+                      <span className="block truncate font-semibold">{session.title}</span>
+                      <span className="mt-1 block text-[10px] text-slate-400">{session.messages.length / 2} exchange(s){session.ingested_entry_id ? " · in record" : ""}</span>
+                    </button>
+                  ))}
+                  {record.patient_chat_sessions.length === 0 && <p className="px-2 py-4 text-xs text-slate-400">No conversations yet.</p>}
+                </div>
+              </aside>
+              <div className="p-5">
+                <div className="max-h-96 min-h-56 space-y-3 overflow-y-auto rounded-2xl bg-slate-50 p-4">
+                  {activeChat?.messages.map((message) => (
+                    <div key={message.id} className={`flex ${message.role === "patient" ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 ${message.role === "patient" ? "bg-sky-700 text-white" : "border border-slate-200 bg-white text-slate-700"}`}>
+                        {message.content}
+                      </div>
+                    </div>
+                  ))}
+                  {!activeChat && <div className="grid min-h-48 place-items-center text-center text-sm text-slate-400">Start a conversation with the patient assistant.</div>}
+                </div>
+                {chatRedactions.length > 0 && (
+                  <p className="mt-2 text-xs text-emerald-700">Protected before sending: {chatRedactions.join(", ")}</p>
+                )}
+                <form onSubmit={sendPatientChat} className="mt-3 flex gap-2">
+                  <textarea
+                    required
+                    value={chatMessage}
+                    onChange={(event) => setChatMessage(event.target.value)}
+                    rows={2}
+                    placeholder="Ask a question or describe a change in your symptoms…"
+                    className="min-w-0 flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500"
+                  />
+                  <button disabled={busy || !chatMessage.trim()} className="rounded-xl bg-sky-700 px-5 text-sm font-semibold text-white hover:bg-sky-600 disabled:opacity-50">
+                    {busy ? "Sending…" : "Send"}
+                  </button>
+                </form>
+                {activeChat && (
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <p className="text-xs leading-5 text-amber-900">Adding this conversation creates an AI-extracted, source-backed timeline entry for care-team review.</p>
+                    <button
+                      type="button"
+                      disabled={busy || Boolean(activeChat.ingested_entry_id)}
+                      onClick={() => void ingestPatientChat()}
+                      className="shrink-0 rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      {activeChat.ingested_entry_id ? "Added to record" : "Add to record"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section>

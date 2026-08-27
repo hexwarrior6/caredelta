@@ -85,6 +85,28 @@ export type TimelineEntry = {
   source_label: string;
 };
 
+export type PatientChatMessage = {
+  id: string;
+  role: "patient" | "assistant";
+  content: string;
+  created_at: string;
+};
+
+export type PatientChatSession = {
+  id: string;
+  patient_id: string;
+  title: string;
+  messages: PatientChatMessage[];
+  created_at: string;
+  updated_at: string;
+  ingested_entry_id: string | null;
+};
+
+export type PatientChatResponse = {
+  session: PatientChatSession;
+  redacted_phi_types: string[];
+};
+
 export type Version = {
   id: string;
   entry_id: string;
@@ -138,6 +160,7 @@ export type PatientRecord = {
   interaction_events: unknown[];
   conflicts: Conflict[];
   review_queue: Highlight[];
+  patient_chat_sessions: PatientChatSession[];
   generated_at: string;
   highlight_pagination: {
     page: number;

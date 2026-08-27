@@ -45,6 +45,8 @@ in control of what becomes trusted clinical memory.
   admin access
 - A passwordless demo landing page with three synthetic patients and dedicated
   staff, clinician, and admin identities
+- A PHI-redacted patient AI assistant whose saved conversations can be promoted
+  into source-backed patient-session timeline entries
 - Deterministic synthetic data for safe local development and demonstration
 
 Application runtimes persist patient records in MongoDB Atlas through
@@ -127,6 +129,15 @@ glance card to jump to and highlight its supporting text in the timeline. The
 source marker shows the provenance confidence carried by the backend pointer.
 Sign in as staff to add a note and assign an `@clinician` comment, then log out
 and sign in as the clinician to resolve or reopen the handoff.
+
+Patient identities also have an **Ask about your care** workspace. Each question
+is redacted locally in the backend before it is sent to DeepSeek, and the
+redacted patient/assistant exchange is stored with that patient's record. The
+patient must explicitly choose **Add to record** before the conversation creates
+a timeline entry. At that point the existing ingest pipeline extracts candidate
+signals only from patient-authored statements, creates exact provenance
+pointers, and routes untrusted signals to care-team review; AI assistant wording
+is never treated as a patient clinical fact.
 
 ## API
 

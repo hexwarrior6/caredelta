@@ -206,6 +206,23 @@ class HighlightPagination(BaseModel):
     total_pages: int = Field(ge=1)
 
 
+class PatientChatMessage(BaseModel):
+    id: str
+    role: Literal["patient", "assistant"]
+    content: str
+    created_at: datetime
+
+
+class PatientChatSession(BaseModel):
+    id: str
+    patient_id: str
+    title: str = "Patient AI conversation"
+    messages: list[PatientChatMessage] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    ingested_entry_id: str | None = None
+
+
 class PatientRecord(BaseModel):
     patient: Patient
     highlights: list[Highlight]
@@ -217,6 +234,7 @@ class PatientRecord(BaseModel):
     interaction_events: list[InteractionEvent]
     conflicts: list[Conflict]
     review_queue: list[Highlight] = Field(default_factory=list)
+    patient_chat_sessions: list[PatientChatSession] = Field(default_factory=list)
     generated_at: datetime
     highlight_pagination: HighlightPagination = Field(
         default_factory=lambda: HighlightPagination(
@@ -317,3 +335,17 @@ class AIIngestResponse(BaseModel):
     promoted_count: int
     review_queue_count: int
     conflicts: list[Conflict]
+
+
+class PatientChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=5_000)
+    session_id: str | None = None
+
+
+class PatientChatResponse(BaseModel):
+    session: PatientChatSession
+    redacted_phi_types: list[str]
+
+
+class PatientChatIngestResponse(AIIngestResponse):
+    session: PatientChatSession

@@ -10,6 +10,7 @@ from app.models import (
     Highlight,
     InteractionEvent,
     PatientRecord,
+    PatientChatSession,
     TimelineEntry,
     Version,
 )
@@ -29,6 +30,8 @@ class PatientRecordRepository(Protocol):
     def add_comment(self, comment: Comment) -> Comment: ...
 
     def add_interaction_event(self, event: InteractionEvent) -> InteractionEvent: ...
+
+    def save_patient_chat_session(self, session: PatientChatSession) -> PatientChatSession: ...
 
     def update_comment_status(
         self, patient_id: str, comment_id: str, resolved: bool
@@ -90,6 +93,15 @@ class MemoryRepository:
     def add_interaction_event(self, event: InteractionEvent) -> InteractionEvent:
         self._records[event.patient_id].interaction_events.append(deepcopy(event))
         return deepcopy(event)
+
+    def save_patient_chat_session(self, session: PatientChatSession) -> PatientChatSession:
+        record = self._records[session.patient_id]
+        for index, existing in enumerate(record.patient_chat_sessions):
+            if existing.id == session.id:
+                record.patient_chat_sessions[index] = deepcopy(session)
+                return deepcopy(session)
+        record.patient_chat_sessions.insert(0, deepcopy(session))
+        return deepcopy(session)
 
     def add_ai_ingest(
         self,
@@ -263,6 +275,21 @@ class MongoRepository:
         if result.matched_count == 0:
             raise KeyError(event.patient_id)
         return event.model_copy(deep=True)
+
+    def save_patient_chat_session(self, session: PatientChatSession) -> PatientChatSession:
+        document = session.model_dump(mode="python")
+        updated = self._collection.update_one(
+            {"patient.id": session.patient_id, "patient_chat_sessions.id": session.id},
+            {"$set": {"patient_chat_sessions.$": document}},
+        )
+        if updated.matched_count == 0:
+            inserted = self._collection.update_one(
+                {"patient.id": session.patient_id},
+                {"$push": {"patient_chat_sessions": {"$each": [document], "$position": 0}}},
+            )
+            if inserted.matched_count == 0:
+                raise KeyError(session.patient_id)
+        return session.model_copy(deep=True)
 
     def add_ai_ingest(
         self,

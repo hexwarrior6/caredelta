@@ -6,7 +6,7 @@ from app.config import get_settings
 from app.models import AuthContext, DemoIdentity, UserRole
 
 class Action(StrEnum):
-    READ_PATIENT_SUMMARY="read_patient_summary"; READ_PATIENT_INSTRUCTIONS="read_patient_instructions"; READ_STAFF_NOTES="read_staff_notes"; READ_CLINICIAN_SECTIONS="read_clinician_sections"; READ_RAW_AI_TRANSCRIPT="read_raw_ai_transcript"; READ_INTERNAL_COMMENTS="read_internal_comments"; READ_REVISION_HISTORY="read_revision_history"; CREATE_STAFF_NOTE="create_staff_note"; EDIT_STAFF_NOTE="edit_staff_note"; EDIT_CLINICIAN_SECTION="edit_clinician_section"; CREATE_INTERNAL_COMMENT="create_internal_comment"; RESOLVE_INTERNAL_COMMENT="resolve_internal_comment"; ACCEPT_HIGHLIGHT="accept_highlight"; REJECT_HIGHLIGHT="reject_highlight"; PIN_HIGHLIGHT="pin_highlight"; ROLLBACK_ENTRY="rollback_entry"; READ_AUDIT_LOG="read_audit_log"; INGEST_AI_NOTE="ingest_ai_note"
+    READ_PATIENT_SUMMARY="read_patient_summary"; READ_PATIENT_INSTRUCTIONS="read_patient_instructions"; READ_STAFF_NOTES="read_staff_notes"; READ_CLINICIAN_SECTIONS="read_clinician_sections"; READ_RAW_AI_TRANSCRIPT="read_raw_ai_transcript"; READ_INTERNAL_COMMENTS="read_internal_comments"; READ_REVISION_HISTORY="read_revision_history"; CREATE_STAFF_NOTE="create_staff_note"; EDIT_STAFF_NOTE="edit_staff_note"; EDIT_CLINICIAN_SECTION="edit_clinician_section"; CREATE_INTERNAL_COMMENT="create_internal_comment"; RESOLVE_INTERNAL_COMMENT="resolve_internal_comment"; ACCEPT_HIGHLIGHT="accept_highlight"; REJECT_HIGHLIGHT="reject_highlight"; PIN_HIGHLIGHT="pin_highlight"; ROLLBACK_ENTRY="rollback_entry"; READ_AUDIT_LOG="read_audit_log"; INGEST_AI_NOTE="ingest_ai_note"; PATIENT_AI_CHAT="patient_ai_chat"
 
 care_team=frozenset({UserRole.STAFF,UserRole.CLINICIAN,UserRole.ADMIN})
 ACTION_MATRIX={
@@ -15,7 +15,8 @@ ACTION_MATRIX={
  Action.READ_INTERNAL_COMMENTS:care_team, Action.READ_REVISION_HISTORY:care_team, Action.CREATE_STAFF_NOTE:frozenset({UserRole.STAFF,UserRole.ADMIN}), Action.EDIT_STAFF_NOTE:frozenset({UserRole.STAFF,UserRole.ADMIN}),
  Action.EDIT_CLINICIAN_SECTION:frozenset({UserRole.CLINICIAN,UserRole.ADMIN}), Action.CREATE_INTERNAL_COMMENT:care_team, Action.RESOLVE_INTERNAL_COMMENT:care_team,
  Action.ACCEPT_HIGHLIGHT:frozenset({UserRole.CLINICIAN,UserRole.ADMIN}), Action.REJECT_HIGHLIGHT:frozenset({UserRole.CLINICIAN,UserRole.ADMIN}), Action.PIN_HIGHLIGHT:frozenset({UserRole.CLINICIAN,UserRole.ADMIN}),
- Action.ROLLBACK_ENTRY:care_team, Action.READ_AUDIT_LOG:frozenset({UserRole.CLINICIAN,UserRole.ADMIN}), Action.INGEST_AI_NOTE:frozenset({UserRole.CLINICIAN,UserRole.ADMIN}),
+ Action.ROLLBACK_ENTRY:care_team, Action.READ_AUDIT_LOG:frozenset({UserRole.CLINICIAN,UserRole.ADMIN}), Action.INGEST_AI_NOTE:frozenset({UserRole.PATIENT,UserRole.CLINICIAN,UserRole.ADMIN}),
+ Action.PATIENT_AI_CHAT:frozenset({UserRole.PATIENT}),
 }
 PATIENT_IDS=["patient-syn-001","patient-syn-002","patient-syn-003"]
 def _identity(id,name,role,key,default,available): return DemoIdentity(id=id,display_name=name,role=role,clinic_id="clinic-syn-orchard",demo_key=key,default_patient_id=default,available_patient_ids=available)
