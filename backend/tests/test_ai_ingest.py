@@ -347,3 +347,90 @@ def test_glance_is_paginated_and_ranked_by_importance_after_ingest(
     ).json()
     assert [item["importance_score"] for item in second_page["highlights"]] == [86]
     assert second_page["highlight_pagination"]["page"] == 2
+
+
+def test_singapore_name_and_local_phone_failure_case_is_fully_redacted(
+    repository: MemoryRepository,
+) -> None:
+    transcript = (
+        "Patient: My name is Tan Mei Ling, NRIC S1234567D, phone 9123 4567, "
+        "email tan.meiling@example.com. "
+        "Patient: I came in because my cough has lasted for 3 weeks and got worse last night. "
+        "Patient: I feel short of breath when walking upstairs. "
+        "Doctor: She was previously on amlodipine 5mg daily, but today we will increase it "
+        "to 10mg daily because home BP remains high. Patient: I am allergic to penicillin. "
+        "Doctor: Please arrange a chest X-ray and follow up with the nurse in 3 days. "
+        "Nurse: Patient also mentioned she missed two doses of her blood pressure medication this week."
+    )
+    extraction = AIExtraction(
+        summary="Respiratory symptoms require review.",
+        signals=[
+            AISignal(
+                text="Shortness of breath on exertion",
+                category="worsening",
+                risk_level="high",
+                risk_reason="New exertional breathlessness needs clinical review.",
+                importance_score=93,
+                source_snippet="Patient: I feel short of breath when walking upstairs.",
+            )
+        ],
+    )
+    adapter = MockLLMAdapter(response=extraction)
+    app.dependency_overrides[get_llm_adapter] = lambda: adapter
+
+    preview = client.post(
+        f"/api/patients/{PATIENT_ID}/ai-ingest/preview",
+        headers=headers(),
+        json={"transcript": transcript},
+    )
+    assert preview.status_code == 200
+    sanitized = preview.json()["redacted_text"]
+    assert set(preview.json()["redacted_phi_types"]) == {
+        "email",
+        "id",
+        "name",
+        "phone",
+    }
+    for raw_phi in (
+        "Tan Mei Ling",
+        "S1234567D",
+        "9123 4567",
+        "tan.meiling@example.com",
+    ):
+        assert raw_phi not in sanitized
+    assert "[REDACTED_NAME]" in sanitized
+    assert "[REDACTED_PHONE]" in sanitized
+    assert "amlodipine 5mg" in sanitized
+    assert "10mg daily" in sanitized
+
+    ingested = client.post(
+        f"/api/patients/{PATIENT_ID}/ai-ingest",
+        headers=headers(),
+        json={
+            "title": "PHI regression case",
+            "source_id": "session-phi-regression-001",
+            "interaction_type": "ai_doctor_consult_summary",
+            "transcript": transcript,
+        },
+    )
+    assert ingested.status_code == 201
+    assert adapter.received_transcripts == [sanitized]
+    for raw_phi in ("Tan Mei Ling", "S1234567D", "9123 4567", "tan.meiling@example.com"):
+        assert raw_phi not in adapter.received_transcripts[0]
+
+
+@pytest.mark.parametrize(
+    "phone",
+    ["9123 4567", "91234567", "+65 9123 4567", "9123-4567"],
+)
+def test_common_singapore_phone_formats_are_redacted(
+    repository: MemoryRepository, phone: str
+) -> None:
+    preview = client.post(
+        f"/api/patients/{PATIENT_ID}/ai-ingest/preview",
+        headers=headers(),
+        json={"transcript": f"Please call me at {phone} tomorrow."},
+    )
+    assert preview.status_code == 200
+    assert phone not in preview.json()["redacted_text"]
+    assert "[REDACTED_PHONE]" in preview.json()["redacted_text"]

@@ -598,6 +598,11 @@ README and technical brief stay consistent with the actual implementation.
 - The backend redacts the known patient name, email, phone, and common patient
   or medical ID formats before invoking any LLM adapter. The sanitized text is
   also the stored AI-scribed source so provenance offsets cannot point into PHI.
+- PHI handling is a layered local pipeline: Python `phonenumbers` with Singapore
+  metadata detects compact, spaced, dashed, and international phone formats;
+  contextual patterns detect self-introduced, labelled, and honorific-prefixed
+  names even when they differ from the patient profile; structured rules cover
+  email and NRIC/medical IDs. No external PII service sees the transcript.
 - Added an OpenAI-compatible DeepSeek adapter configured by base URL, model, API
   key, and timeout. The adapter requests JSON-only output and validates it using
   a strict Pydantic contract with unknown fields rejected.
@@ -626,6 +631,10 @@ README and technical brief stay consistent with the actual implementation.
   resolves to a stored system entry span; and raw transcript content is absent
   from audit metadata. The integration test covers preview, ingest, aggregate
   reload, system entry visibility, and highlight-to-source resolution.
+- The reported `Tan Mei Ling` / Singapore local-phone failure case is a permanent
+  regression fixture. It asserts that name, NRIC, local phone, and email are
+  absent from both preview and mock-adapter input while medication doses remain
+  intact; additional parametrized tests cover common Singapore phone formats.
 - AI ingest now uses `interaction_type + source_id` as its idempotency key.
   Existing Mongo records are backfilled with keys during initialization, normal
   duplicates are rejected before an LLM call, and the Mongo write independently

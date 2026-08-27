@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 from urllib import request
 
+import phonenumbers
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.models import RiskLevel, SignalCategory
@@ -116,7 +117,9 @@ _PHI_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("email", re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")),
     (
         "phone",
-        re.compile(r"(?<!\w)(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?)\d{3,4}[\s.-]?\d{4}(?!\w)"),
+        re.compile(
+            r"(?<!\w)(?:\+?65[\s.-]?)?[3689]\d{3}[\s.-]?\d{4}(?!\w)"
+        ),
     ),
     ("id", re.compile(r"(?i)\b[STFGM]\d{7}[A-Z]\b")),
     (
@@ -124,6 +127,45 @@ _PHI_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"(?i)\b(?:patient\s+id|medical\s+record\s+number|mrn|id)\s*[:#-]?\s*[A-Z0-9-]{5,}\b"),
     ),
 )
+
+_CONTEXTUAL_NAME_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"(?i)(?P<prefix>\b(?:my name is|patient(?:'s)? name(?: is)?|name)\s*[:=-]?\s*)"
+        r"(?P<value>[A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+){1,4})"
+    ),
+    re.compile(
+        r"(?i)\b(?:Dr|Doctor|Nurse|Mr|Mrs|Ms|Miss)\.?\s+"
+        r"[A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+){1,4}"
+    ),
+)
+
+
+def _redact_phone_numbers(text: str) -> tuple[str, bool]:
+    matches = list(phonenumbers.PhoneNumberMatcher(text, "SG"))
+    if not matches:
+        return text, False
+    redacted = text
+    for match in reversed(matches):
+        redacted = (
+            redacted[: match.start]
+            + "[REDACTED_PHONE]"
+            + redacted[match.end :]
+        )
+    return redacted, True
+
+
+def _redact_contextual_names(text: str) -> tuple[str, bool]:
+    redacted = text
+    found = False
+    for pattern in _CONTEXTUAL_NAME_PATTERNS:
+        if "prefix" in pattern.groupindex:
+            redacted, count = pattern.subn(
+                lambda match: f"{match.group('prefix')}[REDACTED_NAME]", redacted
+            )
+        else:
+            redacted, count = pattern.subn("[REDACTED_NAME]", redacted)
+        found = found or count > 0
+    return redacted, found
 
 
 def redact_phi(text: str, patient_name: str) -> RedactionResult:
@@ -134,6 +176,12 @@ def redact_phi(text: str, patient_name: str) -> RedactionResult:
         redacted, count = name_pattern.subn("[REDACTED_NAME]", redacted)
         if count:
             found.add("name")
+    redacted, contextual_name_found = _redact_contextual_names(redacted)
+    if contextual_name_found:
+        found.add("name")
+    redacted, phone_found = _redact_phone_numbers(redacted)
+    if phone_found:
+        found.add("phone")
     for phi_type, pattern in _PHI_PATTERNS:
         redacted, count = pattern.subn(f"[REDACTED_{phi_type.upper()}]", redacted)
         if count:

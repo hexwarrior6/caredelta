@@ -166,6 +166,13 @@ replaces the known patient name, email addresses, phone numbers, and common
 patient/medical ID formats. Only this sanitized transcript is sent to the
 OpenAI-compatible DeepSeek endpoint.
 
+Phone detection runs locally with Python `phonenumbers` and Singapore-region
+metadata, covering compact, spaced, dashed, and `+65` formats without sending
+text to another service. A contextual name layer additionally removes names in
+phrases such as `my name is`, `patient name`, and common clinician/nurse
+honorifics, including names which differ from the patient profile. Structured
+email and NRIC/medical-ID rules remain in the same local pipeline.
+
 The clinician/admin timeline includes an **Ingest AI note** panel for doctor
 consultations, nurse consultations, and patient sessions. A separate redaction
 preview request shows the exact sanitized text and detected PHI types before the
