@@ -136,10 +136,11 @@ export function PatientRecord() {
   const [showAIIngest, setShowAIIngest] = useState(false);
   const [interactionType, setInteractionType] = useState<AIInteractionType>("ai_doctor_consult_summary");
   const [ingestTitle, setIngestTitle] = useState("AI-scribed consultation");
-  const [sourceId, setSourceId] = useState("session-demo-001");
+  const [sourceId, setSourceId] = useState("");
   const [transcript, setTranscript] = useState(syntheticIngestExample);
   const [redactionPreview, setRedactionPreview] = useState<AIRedactionPreview | null>(null);
   const [ingestResult, setIngestResult] = useState<AIIngestResult | null>(null);
+  const [highlightPage, setHighlightPage] = useState(1);
 
   const authHeaders = useCallback(
     () => ({
@@ -151,13 +152,19 @@ export function PatientRecord() {
     [role],
   );
 
-  const loadRecord = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch(`${apiUrl}/api/patients/${patientId}/record`, {
+  const loadRecord = useCallback(async (signal?: AbortSignal, requestedPage = 1) => {
+    const query = new URLSearchParams({
+      highlight_page: String(requestedPage),
+      highlight_page_size: "3",
+    });
+    const response = await fetch(`${apiUrl}/api/patients/${patientId}/record?${query}`, {
       signal,
       headers: authHeaders(),
     });
     if (!response.ok) throw new Error(`API returned HTTP ${response.status}`);
-    setRecord((await response.json()) as PatientRecordData);
+    const nextRecord = (await response.json()) as PatientRecordData;
+    setRecord(nextRecord);
+    setHighlightPage(nextRecord.highlight_pagination.page);
   }, [authHeaders]);
 
   useEffect(() => {
@@ -212,7 +219,7 @@ export function PatientRecord() {
         const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
         throw new Error(payload?.detail ?? `API returned HTTP ${response.status}`);
       }
-      await loadRecord();
+      await loadRecord(undefined, highlightPage);
     } catch (caught) {
       setMutationError(caught instanceof Error ? caught.message : "Unable to save change");
       throw caught;
@@ -267,7 +274,8 @@ export function PatientRecord() {
         },
       );
       setIngestResult(result);
-      await loadRecord();
+      setHighlightPage(1);
+      await loadRecord(undefined, 1);
       if (result.highlights[0]) setFocusedHighlight(result.highlights[0]);
       window.setTimeout(() => {
         document.getElementById(result.entry.id)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -360,6 +368,21 @@ export function PatientRecord() {
     });
   }
 
+  async function changeHighlightPage(page: number) {
+    setBusy(true);
+    setMutationError(null);
+    try {
+      setHighlightPage(page);
+      await loadRecord(undefined, page);
+      setFocusedHighlight(null);
+      document.getElementById("glance-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to load highlight page");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (error) {
     return (
       <main className="grid min-h-screen place-items-center p-6">
@@ -410,7 +433,10 @@ export function PatientRecord() {
                 <button
                   key={item}
                   type="button"
-                  onClick={() => setRole(item)}
+                  onClick={() => {
+                    setHighlightPage(1);
+                    setRole(item);
+                  }}
                   aria-pressed={role === item}
                   className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold capitalize transition sm:px-3 ${
                     role === item
@@ -455,11 +481,12 @@ export function PatientRecord() {
           </div>
         </section>
 
-        <section className="mt-8 overflow-hidden rounded-3xl bg-teal-950 text-white shadow-2xl shadow-teal-950/15">
+        <section id="glance-card" className="mt-8 scroll-mt-6 overflow-hidden rounded-3xl bg-teal-950 text-white shadow-2xl shadow-teal-950/15">
           <div className="flex flex-col justify-between gap-4 border-b border-white/10 px-6 py-6 sm:px-8 md:flex-row md:items-center">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-300">10-second glance · {role} view</p>
               <h2 className="mt-2 text-2xl font-semibold">What changed and needs action</h2>
+              <p className="mt-2 text-xs text-teal-200/70">Backend-ranked by urgency · 3 signals per page</p>
             </div>
             <p className="max-w-xl text-sm leading-6 text-teal-100/75">{patient.summary}</p>
           </div>
@@ -500,6 +527,34 @@ export function PatientRecord() {
               </button>
             ))}
           </div>
+          {record.highlight_pagination.total_pages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-6 py-4 sm:px-8">
+              <p className="text-xs text-teal-100/70">
+                Page {record.highlight_pagination.page} of {record.highlight_pagination.total_pages} · {record.highlight_pagination.total_items} ranked signals
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy || record.highlight_pagination.page === 1}
+                  onClick={() => void changeHighlightPage(record.highlight_pagination.page - 1)}
+                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <span className="grid h-8 min-w-20 place-items-center rounded-lg bg-white px-3 text-xs font-semibold text-teal-950" aria-current="page">
+                  {record.highlight_pagination.page} / {record.highlight_pagination.total_pages}
+                </span>
+                <button
+                  type="button"
+                  disabled={busy || record.highlight_pagination.page === record.highlight_pagination.total_pages}
+                  onClick={() => void changeHighlightPage(record.highlight_pagination.page + 1)}
+                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -568,14 +623,24 @@ export function PatientRecord() {
                       className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-500"
                     />
                     <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="source-id">Source/session ID</label>
-                    <input
-                      id="source-id"
-                      required
-                      maxLength={160}
-                      value={sourceId}
-                      onChange={(event) => setSourceId(event.target.value)}
-                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm outline-none focus:border-violet-500"
-                    />
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        id="source-id"
+                        required
+                        maxLength={160}
+                        value={sourceId}
+                        onChange={(event) => setSourceId(event.target.value)}
+                        placeholder="Unique source ID"
+                        className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm outline-none focus:border-violet-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setSourceId(`session-demo-${Date.now()}`)}
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                      >
+                        Generate
+                      </button>
+                    </div>
                     <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="ai-transcript">Synthetic transcript or note</label>
                     <textarea
                       id="ai-transcript"

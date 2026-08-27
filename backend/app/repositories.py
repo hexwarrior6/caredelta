@@ -35,11 +35,12 @@ class PatientRecordRepository(Protocol):
 
     def add_ai_ingest(
         self,
+        ingest_key: str,
         entry: TimelineEntry,
         highlights: list[Highlight],
         version: Version,
         audit_log: AuditLog,
-    ) -> None: ...
+    ) -> bool: ...
 
 
 class MemoryRepository:
@@ -47,6 +48,14 @@ class MemoryRepository:
 
     def __init__(self, records: list[PatientRecord]) -> None:
         self._records = {record.patient.id: deepcopy(record) for record in records}
+        self._ingest_keys = {
+            record.patient.id: {
+                f"{highlight.provenance_pointer.source_type}:{highlight.provenance_pointer.source_id}"
+                for highlight in record.highlights
+                if highlight.provenance_pointer.source_type.startswith("ai_")
+            }
+            for record in records
+        }
 
     def get_patient_record(self, patient_id: str) -> PatientRecord | None:
         record = self._records.get(patient_id)
@@ -68,16 +77,21 @@ class MemoryRepository:
 
     def add_ai_ingest(
         self,
+        ingest_key: str,
         entry: TimelineEntry,
         highlights: list[Highlight],
         version: Version,
         audit_log: AuditLog,
-    ) -> None:
+    ) -> bool:
+        if ingest_key in self._ingest_keys[entry.patient_id]:
+            return False
         record = self._records[entry.patient_id]
+        self._ingest_keys[entry.patient_id].add(ingest_key)
         record.timeline_entries.insert(0, deepcopy(entry))
         record.highlights = deepcopy(highlights) + record.highlights
         record.versions.append(deepcopy(version))
         record.audit_logs.append(deepcopy(audit_log))
+        return True
 
     def update_comment_status(
         self, patient_id: str, comment_id: str, resolved: bool
@@ -140,6 +154,18 @@ class MongoRepository:
         record = self.get_patient_record(seed_record.patient.id)
         if record is None:
             return
+        ingest_keys = sorted(
+            {
+                f"{highlight.provenance_pointer.source_type}:{highlight.provenance_pointer.source_id}"
+                for highlight in record.highlights
+                if highlight.provenance_pointer.source_type.startswith("ai_")
+            }
+        )
+        if ingest_keys:
+            self._collection.update_one(
+                {"patient.id": record.patient.id},
+                {"$addToSet": {"ingest_source_keys": {"$each": ingest_keys}}},
+            )
         known_versions = {
             (version.entry_id, version.version_number) for version in record.versions
         }
@@ -213,14 +239,19 @@ class MongoRepository:
 
     def add_ai_ingest(
         self,
+        ingest_key: str,
         entry: TimelineEntry,
         highlights: list[Highlight],
         version: Version,
         audit_log: AuditLog,
-    ) -> None:
+    ) -> bool:
         result = self._collection.update_one(
-            {"patient.id": entry.patient_id},
             {
+                "patient.id": entry.patient_id,
+                "ingest_source_keys": {"$ne": ingest_key},
+            },
+            {
+                "$addToSet": {"ingest_source_keys": ingest_key},
                 "$push": {
                     "timeline_entries": {
                         "$each": [entry.model_dump(mode="python")],
@@ -235,8 +266,7 @@ class MongoRepository:
                 }
             },
         )
-        if result.matched_count == 0:
-            raise KeyError(entry.patient_id)
+        return result.matched_count == 1
 
     def update_comment_status(
         self, patient_id: str, comment_id: str, resolved: bool

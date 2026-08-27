@@ -114,6 +114,12 @@ export type PatientRecord = {
   interaction_events: unknown[];
   conflicts: Conflict[];
   generated_at: string;
+  highlight_pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
 };
 
 export type AIRedactionPreview = {

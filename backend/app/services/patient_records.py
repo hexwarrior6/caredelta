@@ -1,5 +1,33 @@
 from app.auth import Action, can, require_clinic_scope
-from app.models import AuthContext, AuthorRole, PatientRecord, TimelineEntry, VisibilityScope
+from app.models import (
+    AuthContext,
+    AuthorRole,
+    HighlightPagination,
+    PatientRecord,
+    TimelineEntry,
+    VisibilityScope,
+)
+
+
+def paginate_glance_highlights(highlights, page: int, page_size: int):
+    ranked = sorted(
+        highlights,
+        key=lambda highlight: (highlight.importance_score, highlight.created_at),
+        reverse=True,
+    )
+    total_items = len(ranked)
+    total_pages = max(1, (total_items + page_size - 1) // page_size)
+    resolved_page = min(page, total_pages)
+    start = (resolved_page - 1) * page_size
+    return (
+        ranked[start : start + page_size],
+        HighlightPagination(
+            page=resolved_page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+        ),
+    )
 
 
 def entry_action(entry: TimelineEntry) -> Action:
@@ -17,7 +45,12 @@ def entry_action(entry: TimelineEntry) -> Action:
     return Action.READ_CLINICIAN_SECTIONS
 
 
-def filter_patient_record(record: PatientRecord, context: AuthContext) -> PatientRecord:
+def filter_patient_record(
+    record: PatientRecord,
+    context: AuthContext,
+    highlight_page: int = 1,
+    highlight_page_size: int = 3,
+) -> PatientRecord:
     require_clinic_scope(context, record.patient.clinic_id)
 
     visible_entries = sorted(
@@ -33,15 +66,19 @@ def filter_patient_record(record: PatientRecord, context: AuthContext) -> Patien
 
     # A signal is hidden when its source entry is hidden. This prevents provenance
     # metadata from becoming a side channel for restricted note content.
-    highlights = [
-        highlight
-        for highlight in record.highlights
-        if highlight.provenance_pointer.entry_id in visible_entry_ids
-        and (
-            context.role.value != "patient"
-            or highlight.trust_status.value == "clinician_confirmed"
-        )
-    ]
+    highlights, highlight_pagination = paginate_glance_highlights(
+        [
+            highlight
+            for highlight in record.highlights
+            if highlight.provenance_pointer.entry_id in visible_entry_ids
+            and (
+                context.role.value != "patient"
+                or highlight.trust_status.value == "clinician_confirmed"
+            )
+        ],
+        highlight_page,
+        highlight_page_size,
+    )
     tasks = [task for task in record.tasks if task.source_entry_id in visible_entry_ids]
     comments = (
         [comment for comment in record.comments if comment.entry_id in visible_entry_ids]
@@ -76,5 +113,6 @@ def filter_patient_record(record: PatientRecord, context: AuthContext) -> Patien
             "audit_logs": audit_logs,
             "interaction_events": interaction_events,
             "conflicts": conflicts,
+            "highlight_pagination": highlight_pagination,
         }
     )

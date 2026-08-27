@@ -181,6 +181,13 @@ class Conflict(BaseModel):
     detected_at: datetime
 
 
+class HighlightPagination(BaseModel):
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1)
+    total_items: int = Field(ge=0)
+    total_pages: int = Field(ge=1)
+
+
 class PatientRecord(BaseModel):
     patient: Patient
     highlights: list[Highlight]
@@ -192,6 +199,11 @@ class PatientRecord(BaseModel):
     interaction_events: list[InteractionEvent]
     conflicts: list[Conflict]
     generated_at: datetime
+    highlight_pagination: HighlightPagination = Field(
+        default_factory=lambda: HighlightPagination(
+            page=1, page_size=3, total_items=0, total_pages=1
+        )
+    )
 
 
 class AuthContext(BaseModel):

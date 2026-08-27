@@ -183,6 +183,13 @@ glance data refresh immediately, and generated highlights retain the existing
 click-to-source behavior. No API key is required by automated tests; they inject
 mock adapters and isolated memory data.
 
+The 10-second glance shows three backend-ranked highlights per page. Signals are
+sorted by importance score and then recency, so clinicians see the most urgent
+changes first while retaining access to lower-ranked pages. AI ingest is
+idempotent by interaction type plus source ID; duplicate or concurrent
+submissions return `409 Conflict` before creating another timeline entry or
+highlight set.
+
 ## Access control
 
 The backend enforces an action matrix for `patient`, `staff`, `clinician`, and

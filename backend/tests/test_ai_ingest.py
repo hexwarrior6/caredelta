@@ -178,8 +178,14 @@ def test_invalid_json_and_unresolved_provenance_trigger_fallback(
     app.dependency_overrides[get_llm_adapter] = lambda: MockLLMAdapter(
         response=ungrounded
     )
+    unresolved_body = {
+        **body,
+        "source_id": "session-unresolved-provenance",
+    }
     unresolved = client.post(
-        f"/api/patients/{PATIENT_ID}/ai-ingest", headers=headers(), json=body
+        f"/api/patients/{PATIENT_ID}/ai-ingest",
+        headers=headers(),
+        json=unresolved_body,
     )
     assert unresolved.status_code == 201
     assert unresolved.json()["fallback_reason"] == "provenance_unresolved"
@@ -220,7 +226,7 @@ def test_redaction_preview_and_full_ingest_integration(
         f"/api/patients/{PATIENT_ID}/record", headers=headers()
     ).json()
     entry = next(item for item in record["timeline_entries"] if item["id"] == result["entry"]["id"])
-    highlight = next(item for item in record["highlights"] if item["id"] == result["highlights"][0]["id"])
+    highlight = result["highlights"][0]
     pointer = highlight["provenance_pointer"]
     assert entry["author_role"] == "system"
     assert entry["content"][pointer["start_offset"] : pointer["end_offset"]] == pointer["source_quote"]
@@ -273,3 +279,71 @@ def test_deepseek_adapter_disables_thinking_and_limits_output(monkeypatch) -> No
     assert payload["max_tokens"] == 1_200
     assert captured["timeout"] == 30
     assert result.summary == "Reliever use increased."
+
+
+def test_duplicate_interaction_source_is_rejected_without_new_records(
+    repository: MemoryRepository,
+) -> None:
+    adapter = MockLLMAdapter(response=successful_extraction())
+    app.dependency_overrides[get_llm_adapter] = lambda: adapter
+    body = {
+        "title": "Idempotent ingest",
+        "source_id": "session-idempotent-001",
+        "interaction_type": "ai_doctor_consult_summary",
+        "transcript": "Reliever inhaler used daily this week.",
+    }
+
+    first = client.post(
+        f"/api/patients/{PATIENT_ID}/ai-ingest", headers=headers(), json=body
+    )
+    before_duplicate = repository.get_patient_record(PATIENT_ID)
+    second = client.post(
+        f"/api/patients/{PATIENT_ID}/ai-ingest", headers=headers(), json=body
+    )
+    after_duplicate = repository.get_patient_record(PATIENT_ID)
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+    assert second.json()["detail"] == "This interaction source has already been ingested"
+    assert before_duplicate is not None and after_duplicate is not None
+    assert len(after_duplicate.timeline_entries) == len(before_duplicate.timeline_entries)
+    assert len(after_duplicate.highlights) == len(before_duplicate.highlights)
+    assert len(adapter.received_transcripts) == 1
+
+
+def test_glance_is_paginated_and_ranked_by_importance_after_ingest(
+    repository: MemoryRepository,
+) -> None:
+    app.dependency_overrides[get_llm_adapter] = lambda: MockLLMAdapter(
+        response=successful_extraction()
+    )
+    response = client.post(
+        f"/api/patients/{PATIENT_ID}/ai-ingest",
+        headers=headers(),
+        json={
+            "title": "Glance limit ingest",
+            "source_id": "session-glance-limit-001",
+            "interaction_type": "ai_doctor_consult_summary",
+            "transcript": "Reliever inhaler used daily this week.",
+        },
+    )
+    assert response.status_code == 201
+
+    record = client.get(
+        f"/api/patients/{PATIENT_ID}/record", headers=headers()
+    ).json()
+    assert len(record["highlights"]) == 3
+    assert [item["importance_score"] for item in record["highlights"]] == [94, 92, 91]
+    assert record["highlight_pagination"] == {
+        "page": 1,
+        "page_size": 3,
+        "total_items": 4,
+        "total_pages": 2,
+    }
+
+    second_page = client.get(
+        f"/api/patients/{PATIENT_ID}/record?highlight_page=2&highlight_page_size=3",
+        headers=headers(),
+    ).json()
+    assert [item["importance_score"] for item in second_page["highlights"]] == [86]
+    assert second_page["highlight_pagination"]["page"] == 2

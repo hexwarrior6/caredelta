@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.auth import (
     Action,
@@ -57,6 +57,7 @@ def preview_ai_ingest_redaction(
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
     require_action(context, Action.INGEST_AI_NOTE)
+
     redaction = redact_phi(payload.transcript, record.patient.display_name)
     return AIRedactionPreviewResponse(
         redacted_text=redaction.text,
@@ -86,6 +87,17 @@ def ingest_ai_scribed_note(
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
     require_action(context, Action.INGEST_AI_NOTE)
+
+    ingest_key = f"{payload.interaction_type}:{payload.source_id}"
+    if any(
+        f"{highlight.provenance_pointer.source_type}:{highlight.provenance_pointer.source_id}"
+        == ingest_key
+        for highlight in record.highlights
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This interaction source has already been ingested",
+        )
 
     redaction = redact_phi(payload.transcript, record.patient.display_name)
     extraction, method, fallback_reason = extract_with_fallback(adapter, redaction.text)
@@ -155,7 +167,14 @@ def ingest_ai_scribed_note(
         created_at=now,
         request_id=f"request-{uuid4()}",
     )
-    repository.add_ai_ingest(entry, highlights, version, audit_log)
+    inserted = repository.add_ai_ingest(
+        ingest_key, entry, highlights, version, audit_log
+    )
+    if not inserted:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This interaction source has already been ingested",
+        )
     return AIIngestResponse(
         entry=entry,
         highlights=highlights,
@@ -226,6 +245,8 @@ def get_patient_record(
     patient_id: str,
     repository: Annotated[PatientRecordRepository, Depends(get_repository)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
+    highlight_page: Annotated[int, Query(ge=1)] = 1,
+    highlight_page_size: Annotated[int, Query(ge=1, le=6)] = 3,
 ) -> PatientRecord:
     record = repository.get_patient_record(patient_id)
     if record is None:
@@ -234,7 +255,12 @@ def get_patient_record(
             detail="Patient record not found",
         )
     require_action(context, Action.READ_PATIENT_SUMMARY)
-    return filter_patient_record(record, context)
+    return filter_patient_record(
+        record,
+        context,
+        highlight_page=highlight_page,
+        highlight_page_size=highlight_page_size,
+    )
 
 
 @router.post(

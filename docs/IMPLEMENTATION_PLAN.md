@@ -626,3 +626,12 @@ README and technical brief stay consistent with the actual implementation.
   resolves to a stored system entry span; and raw transcript content is absent
   from audit metadata. The integration test covers preview, ingest, aggregate
   reload, system entry visibility, and highlight-to-source resolution.
+- AI ingest now uses `interaction_type + source_id` as its idempotency key.
+  Existing Mongo records are backfilled with keys during initialization, normal
+  duplicates are rejected before an LLM call, and the Mongo write independently
+  applies the same key as an atomic condition to prevent concurrent duplicates.
+- The 10-second glance uses backend pagination with three highlights per page.
+  Ranking is strictly importance score first and recency second, keeping the
+  first page fast to scan while allowing clinicians to browse every lower-ranked
+  signal through compact previous/next controls with the current page indicator.
+  Timeline history remains intact.
