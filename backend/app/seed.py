@@ -15,6 +15,7 @@ from app.models import (
     Task,
     TimelineEntry,
     TrustStatus,
+    UserRole,
     Version,
     VisibilityScope,
 )
@@ -261,6 +262,7 @@ def build_seed_record() -> PatientRecord:
                 created_at=_dt("2026-08-27T01:24:00"),
                 resolved=False,
                 mentions=["clinician-syn-lim"],
+                assigned_role=UserRole.CLINICIAN,
             )
         ],
         versions=[

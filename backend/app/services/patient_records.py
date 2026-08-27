@@ -2,7 +2,7 @@ from app.auth import Action, can, require_clinic_scope
 from app.models import AuthContext, AuthorRole, PatientRecord, TimelineEntry, VisibilityScope
 
 
-def _entry_action(entry: TimelineEntry) -> Action:
+def entry_action(entry: TimelineEntry) -> Action:
     if entry.visibility_scope == VisibilityScope.PATIENT:
         return Action.READ_PATIENT_INSTRUCTIONS
     if (
@@ -20,9 +20,15 @@ def _entry_action(entry: TimelineEntry) -> Action:
 def filter_patient_record(record: PatientRecord, context: AuthContext) -> PatientRecord:
     require_clinic_scope(context, record.patient.clinic_id)
 
-    visible_entries = [
-        entry for entry in record.timeline_entries if can(context.role, _entry_action(entry))
-    ]
+    visible_entries = sorted(
+        (
+            entry
+            for entry in record.timeline_entries
+            if can(context.role, entry_action(entry))
+        ),
+        key=lambda entry: entry.timestamp,
+        reverse=True,
+    )
     visible_entry_ids = {entry.id for entry in visible_entries}
 
     # A signal is hidden when its source entry is hidden. This prevents provenance

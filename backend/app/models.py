@@ -112,6 +112,7 @@ class Comment(BaseModel):
     created_at: datetime
     resolved: bool
     mentions: list[str] = Field(default_factory=list)
+    assigned_role: UserRole | None = None
 
 
 class Task(BaseModel):
@@ -202,3 +203,13 @@ class CreateEntryRequest(BaseModel):
 class UpdateEntryRequest(BaseModel):
     content: str = Field(min_length=1, max_length=10_000)
     expected_version: int = Field(ge=1)
+
+
+class CreateCommentRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=5_000)
+    mentions: list[str] = Field(default_factory=list)
+    assigned_role: UserRole | None = None
+
+
+class UpdateCommentStatusRequest(BaseModel):
+    resolved: bool

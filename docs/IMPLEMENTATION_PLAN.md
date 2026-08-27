@@ -527,3 +527,33 @@ README and technical brief stay consistent with the actual implementation.
 - Added `tests/test_rbac_scope.py` covering patient data filtering, staff read
   filtering, forbidden cross-role writes, staff ownership, required auth context,
   and clinic isolation for all four roles.
+
+### Phase 4: Timeline and Collaboration
+
+- Timeline entries are returned newest-first across patient, staff, clinician,
+  and AI/system sources after server-side role filtering.
+- Staff and clinicians create notes in distinct protected sections; existing
+  ownership rules continue to prevent cross-role overwrites.
+- Internal comments support `mentions`, an optional `assigned_role`, and an
+  explicit resolved/unresolved status without mutating the source note.
+- Comment creation and status updates enforce the action matrix, clinic scope,
+  and visibility of the referenced timeline entry.
+- The demo UI supports the complete staff-to-clinician handoff: publish a staff
+  note, mention and assign a clinician, switch roles, then resolve or reopen it.
+
+### MongoDB Atlas Persistence
+
+- Application runtimes now require `MONGODB_URI` and use `MongoRepository`;
+  automated backend tests continue to override it with an isolated
+  `MemoryRepository` and do not require network access or secrets.
+- `MONGODB_DATABASE` separates `caredelta_development` from
+  `caredelta_production` while keeping the connection URI independent of the
+  environment-specific database name.
+- Backend startup pings Atlas, creates unique patient and query indexes, and
+  inserts the synthetic patient through `$setOnInsert`, making initialization
+  safe across repeated deployments.
+- Timeline creation, comments, assignment status, and resolve/unresolve persist
+  in the patient aggregate document. Timeline edits use an atomic entry ID plus
+  `expected_version` match and write revision/audit data in the same update.
+- A live development-Atlas check confirmed one idempotent seed document, five
+  timeline entries, successful model hydration, and all configured indexes.

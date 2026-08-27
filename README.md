@@ -31,6 +31,8 @@ in control of what becomes trusted clinical memory.
 - A concise top/glance card for high-priority clinical changes
 - A longitudinal timeline containing patient, staff, clinician, and AI-scribed
   entries
+- Shared staff and clinician notes with internal comment threads
+- Lightweight `@clinician` mentions, role assignment, and resolvable handoffs
 - Exact provenance pointers from highlights to their source text
 - Open care-team tasks, comments, revision snapshots, and audit metadata
 - Explicit conflict records for information that requires reconciliation
@@ -38,10 +40,10 @@ in control of what becomes trusted clinical memory.
   admin access
 - Deterministic synthetic data for safe local development and demonstration
 
-The application currently uses an in-process `MemoryRepository`. Restarting the
-backend restores the synthetic record. MongoDB persistence, production RBAC,
-and live AI ingest are designed as backend responsibilities and can be added
-without changing the patient-record interface.
+Application runtimes persist patient records in MongoDB Atlas through
+`MongoRepository`. Local development and Railway use separate database names,
+while automated tests override the repository with an isolated
+`MemoryRepository` so CI remains deterministic and requires no external secret.
 
 ## Architecture
 
@@ -50,7 +52,8 @@ Browser
   -> Next.js App Router + TypeScript + Tailwind CSS
   -> FastAPI clinical API
   -> Repository interface
-  -> MemoryRepository (local) / MongoDB Atlas (deployment target)
+  -> MongoRepository -> MongoDB Atlas (application runtime)
+  -> MemoryRepository (automated tests only)
 ```
 
 The frontend renders the care record, while the Python backend owns clinical
@@ -79,6 +82,12 @@ ignored local reference for production values and can be loaded locally with
 through its Variables settings. Replace all credential placeholders and never
 commit either real environment file.
 
+Set `MONGODB_DATABASE=caredelta_development` locally and in Railway development.
+Use `MONGODB_DATABASE=caredelta_production` in Railway production so synthetic
+development activity cannot modify production records. On startup, the backend
+checks Atlas connectivity, creates indexes, and inserts the synthetic seed only
+when that patient does not already exist.
+
 ### Start the backend
 
 ```bash
@@ -104,6 +113,8 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Select a signal in the
 glance card to jump to and highlight its exact supporting text in the timeline.
+Use the demo role preview to add a staff note, assign an `@clinician` comment,
+then switch to the clinician view to resolve or reopen the handoff.
 
 ## API
 
@@ -126,6 +137,10 @@ curl \
 The patient-record response includes the patient, highlights, provenance
 pointers, tasks, timeline entries, comments, versions, audit logs, interaction
 events, and conflicts.
+
+Staff, clinician, and admin views can create role-appropriate notes and internal
+comments through the timeline. Comment status is updated independently from the
+source note so collaboration never overwrites clinical content.
 
 ## Access control
 
@@ -185,6 +200,7 @@ Create a Railway service from this GitHub repository with:
 Set these Railway variables without committing their values:
 
 - `MONGODB_URI`
+- `MONGODB_DATABASE` — `caredelta_development` or `caredelta_production`
 - `DEEPSEEK_BASE_URL`
 - `DEEPSEEK_MODEL`
 - `DEEPSEEK_API_KEY`

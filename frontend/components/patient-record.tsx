@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  Comment,
   Highlight,
   PatientRecord as PatientRecordData,
   RiskLevel,
@@ -92,39 +93,121 @@ export function PatientRecord() {
   const [record, setRecord] = useState<PatientRecordData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focusedHighlight, setFocusedHighlight] = useState<Highlight | null>(null);
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+  const [showNoteComposer, setShowNoteComposer] = useState(false);
+  const [commentEntryId, setCommentEntryId] = useState<string | null>(null);
+  const [commentBody, setCommentBody] = useState("");
+  const [assignClinician, setAssignClinician] = useState(true);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const authHeaders = useCallback(
+    () => ({
+      "Content-Type": "application/json",
+      "X-Actor-Id": demoActors[role],
+      "X-Actor-Role": role,
+      "X-Clinic-Id": clinicId,
+    }),
+    [role],
+  );
+
+  const loadRecord = useCallback(async (signal?: AbortSignal) => {
+    const response = await fetch(`${apiUrl}/api/patients/${patientId}/record`, {
+      signal,
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new Error(`API returned HTTP ${response.status}`);
+    setRecord((await response.json()) as PatientRecordData);
+  }, [authHeaders]);
 
   useEffect(() => {
     const controller = new AbortController();
 
-    async function loadRecord() {
+    async function refreshRecord() {
       try {
         setRecord(null);
         setError(null);
-        const response = await fetch(`${apiUrl}/api/patients/${patientId}/record`, {
-          signal: controller.signal,
-          headers: {
-            "X-Actor-Id": demoActors[role],
-            "X-Actor-Role": role,
-            "X-Clinic-Id": clinicId,
-          },
-        });
-        if (!response.ok) throw new Error(`API returned HTTP ${response.status}`);
-        setRecord((await response.json()) as PatientRecordData);
+        await loadRecord(controller.signal);
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === "AbortError") return;
         setError(caught instanceof Error ? caught.message : "Unable to load record");
       }
     }
 
-    void loadRecord();
+    void refreshRecord();
     return () => controller.abort();
-  }, [role]);
+  }, [loadRecord]);
 
   const commentsByEntry = useMemo(() => {
-    return new Map(
-      record?.comments.map((comment) => [comment.entry_id, comment]) ?? [],
-    );
+    const grouped = new Map<string, Comment[]>();
+    for (const comment of record?.comments ?? []) {
+      grouped.set(comment.entry_id, [...(grouped.get(comment.entry_id) ?? []), comment]);
+    }
+    return grouped;
   }, [record]);
+
+  async function mutate(path: string, method: "POST" | "PATCH", body: object) {
+    setBusy(true);
+    setMutationError(null);
+    try {
+      const response = await fetch(`${apiUrl}${path}`, {
+        method,
+        headers: authHeaders(),
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+        throw new Error(payload?.detail ?? `API returned HTTP ${response.status}`);
+      }
+      await loadRecord();
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to save change");
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitNote(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const section = role === "clinician" ? "clinician_section" : "staff_note";
+    try {
+      await mutate(`/api/patients/${patientId}/entries`, "POST", {
+        section,
+        title: noteTitle,
+        content: noteContent,
+      });
+      setNoteTitle("");
+      setNoteContent("");
+      setShowNoteComposer(false);
+    } catch {}
+  }
+
+  async function submitComment(event: React.FormEvent<HTMLFormElement>, entryId: string) {
+    event.preventDefault();
+    const shouldAssign = role === "staff" && assignClinician;
+    const body = shouldAssign && !commentBody.includes("@clinician")
+      ? `@clinician ${commentBody}`
+      : commentBody;
+    try {
+      await mutate(`/api/patients/${patientId}/entries/${entryId}/comments`, "POST", {
+        body,
+        mentions: shouldAssign ? ["clinician-syn-lim"] : [],
+        assigned_role: shouldAssign ? "clinician" : null,
+      });
+      setCommentBody("");
+      setCommentEntryId(null);
+    } catch {}
+  }
+
+  async function toggleComment(comment: Comment) {
+    try {
+      await mutate(`/api/patients/${patientId}/comments/${comment.id}`, "PATCH", {
+        resolved: !comment.resolved,
+      });
+    } catch {}
+  }
 
   function revealSource(highlight: Highlight) {
     setFocusedHighlight(highlight);
@@ -282,12 +365,60 @@ export function PatientRecord() {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">Longitudinal record</p>
                 <h2 className="mt-2 text-2xl font-semibold text-slate-950">Timeline</h2>
               </div>
-              <span className="text-sm text-slate-500">{record.timeline_entries.length} entries</span>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-500">{record.timeline_entries.length} entries</span>
+                {role !== "patient" && (
+                  <button
+                    type="button"
+                    onClick={() => setShowNoteComposer((current) => !current)}
+                    className="rounded-xl bg-teal-950 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+                  >
+                    {showNoteComposer ? "Cancel" : role === "clinician" ? "Add clinician note" : "Add staff note"}
+                  </button>
+                )}
+              </div>
             </div>
+
+            {mutationError && (
+              <p role="alert" className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                {mutationError}
+              </p>
+            )}
+
+            {showNoteComposer && role !== "patient" && (
+              <form onSubmit={submitNote} className="mt-5 rounded-2xl border border-teal-200 bg-white p-5 shadow-sm">
+                <p className="text-sm font-semibold text-teal-900">
+                  New {role === "clinician" ? "clinician" : "staff"} note
+                </p>
+                <input
+                  required
+                  maxLength={160}
+                  value={noteTitle}
+                  onChange={(event) => setNoteTitle(event.target.value)}
+                  placeholder="Note title"
+                  aria-label="Note title"
+                  className="mt-3 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-teal-500"
+                />
+                <textarea
+                  required
+                  value={noteContent}
+                  onChange={(event) => setNoteContent(event.target.value)}
+                  placeholder="Add an observation to the shared care timeline…"
+                  aria-label="Note content"
+                  rows={3}
+                  className="mt-3 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-500"
+                />
+                <div className="mt-3 flex justify-end">
+                  <button disabled={busy} className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                    {busy ? "Saving…" : "Publish note"}
+                  </button>
+                </div>
+              </form>
+            )}
 
             <div className="relative mt-6 space-y-5 before:absolute before:bottom-6 before:left-[19px] before:top-6 before:w-px before:bg-slate-200">
               {record.timeline_entries.map((entry) => {
-                const comment = commentsByEntry.get(entry.id);
+                const comments = commentsByEntry.get(entry.id) ?? [];
                 const isFocused = focusedHighlight?.provenance_pointer.entry_id === entry.id;
                 return (
                   <article key={entry.id} id={entry.id} className="relative scroll-mt-8 pl-12">
@@ -311,14 +442,75 @@ export function PatientRecord() {
                         <span>{entry.source_label}</span>
                         {isFocused && <span className="font-semibold text-amber-700">Exact source · high confidence</span>}
                       </div>
-                      {comment && (
-                        <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50/70 p-4">
-                          <div className="flex items-center justify-between text-xs">
+                      {comments.map((comment) => (
+                        <div key={comment.id} className={`mt-4 rounded-xl border p-4 ${comment.resolved ? "border-slate-200 bg-slate-50" : "border-indigo-100 bg-indigo-50/70"}`}>
+                          <div className="flex items-center justify-between gap-3 text-xs">
                             <span className="font-semibold text-indigo-800">{comment.author_name} commented</span>
-                            <span className="text-indigo-500">Open thread</span>
+                            <span className={comment.resolved ? "text-slate-500" : "text-indigo-600"}>
+                              {comment.resolved ? "Resolved" : "Open thread"}
+                            </span>
                           </div>
                           <p className="mt-2 text-sm leading-6 text-indigo-950/75">{comment.body}</p>
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex gap-2 text-xs text-indigo-600">
+                              {comment.mentions.length > 0 && <span>@clinician mentioned</span>}
+                              {comment.assigned_role && <span>Assigned to {comment.assigned_role}</span>}
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void toggleComment(comment)}
+                              className="text-xs font-semibold text-teal-700 hover:text-teal-900 disabled:opacity-50"
+                            >
+                              {comment.resolved ? "Unresolve" : "Resolve"}
+                            </button>
+                          </div>
                         </div>
+                      ))}
+
+                      {role !== "patient" && commentEntryId !== entry.id && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCommentEntryId(entry.id);
+                            setCommentBody("");
+                          }}
+                          className="mt-4 text-sm font-semibold text-teal-700 hover:text-teal-900"
+                        >
+                          Add comment
+                        </button>
+                      )}
+
+                      {role !== "patient" && commentEntryId === entry.id && (
+                        <form onSubmit={(event) => void submitComment(event, entry.id)} className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                          <textarea
+                            required
+                            value={commentBody}
+                            onChange={(event) => setCommentBody(event.target.value)}
+                            placeholder={role === "staff" ? "Ask @clinician to review…" : "Add an internal care-team comment…"}
+                            aria-label="Comment body"
+                            rows={2}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500"
+                          />
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                            {role === "staff" ? (
+                              <label className="flex items-center gap-2 text-xs text-slate-600">
+                                <input
+                                  type="checkbox"
+                                  checked={assignClinician}
+                                  onChange={(event) => setAssignClinician(event.target.checked)}
+                                />
+                                Mention and assign clinician
+                              </label>
+                            ) : <span />}
+                            <div className="flex gap-2">
+                              <button type="button" onClick={() => setCommentEntryId(null)} className="px-3 py-2 text-xs font-semibold text-slate-500">Cancel</button>
+                              <button disabled={busy} className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+                                {busy ? "Saving…" : "Comment"}
+                              </button>
+                            </div>
+                          </div>
+                        </form>
                       )}
                     </div>
                   </article>
