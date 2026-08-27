@@ -5,6 +5,7 @@ export type AIInteractionType =
   | "ai_nurse_consult_summary"
   | "ai_patient_session_summary";
 export type ProvenanceConfidence = "high" | "medium" | "low";
+export type ExtractionConfidence = "high" | "medium" | "low";
 export type SignalCategory =
   | "new"
   | "worsening"
@@ -45,6 +46,18 @@ export type Highlight = {
   risk_reason: string;
   trust_status: "ai_suggested" | "clinician_confirmed" | "needs_review";
   importance_score: number;
+  base_importance_score: number | null;
+  learning_adjustment: number;
+  learning_reason: string | null;
+  decay_adjustment: number;
+  decay_reason: string | null;
+  extraction_confidence: ExtractionConfidence;
+  confidence_reason: string;
+  importance_reason: string;
+  risk_floor_applied: boolean;
+  risk_floor_reason: string | null;
+  abstained_from_glance: boolean;
+  abstention_reason: string | null;
   provenance_pointer: ProvenancePointer;
   created_at: string;
 };
@@ -97,6 +110,7 @@ export type Comment = {
 
 export type Conflict = {
   id: string;
+  conflict_type: "allergy" | "medication" | "task" | string;
   summary: string;
   severity: RiskLevel;
   status: string;
@@ -113,6 +127,7 @@ export type PatientRecord = {
   audit_logs: unknown[];
   interaction_events: unknown[];
   conflicts: Conflict[];
+  review_queue: Highlight[];
   generated_at: string;
   highlight_pagination: {
     page: number;
@@ -140,4 +155,7 @@ export type AIIngestResult = {
     | null;
   summary: string;
   redacted_phi_types: string[];
+  promoted_count: number;
+  review_queue_count: number;
+  conflicts: Conflict[];
 };

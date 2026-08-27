@@ -283,11 +283,14 @@ creating an unsafe feedback loop.
 
 Implementation approach:
 
-- Manual highlight, pin, edit, and comment events can boost similar future
-  signals.
-- Learning is a bounded boost, not the whole importance score.
-- Dismissal does not automatically mean a class of information is clinically
-  unimportant; it is recorded as context, not negative truth.
+- Manual highlight, pin, edit, and comment events can boost the exact signal
+  acted on. Direct card actions never spill into every signal in the same
+  category.
+- Learning is a bounded adjustment, not the whole importance score: positive
+  attention and `less_relevant` feedback update one net
+  `learning_adjustment`, bounded from -8 to +12.
+- Less-relevant feedback applies only to the selected signal. It does not teach
+  that an entire clinical category is unimportant.
 - Deterministic safety floors for allergies, medication changes, high-risk
   symptoms, and unresolved tasks cannot be reduced by learned weights.
 - Store the reason for each learned boost, such as `boosted_by_prior_pins` or
@@ -648,3 +651,63 @@ README and technical brief stay consistent with the actual implementation.
   first page fast to scan while allowing clinicians to browse every lower-ranked
   signal through compact previous/next controls with the current page indicator.
   Timeline history remains intact.
+
+### Phase 8: Delta Engine, Evaluation, and Abstention
+
+- Added a deterministic Delta Engine between extraction and persistence. Every
+  signal uses one of six longitudinal categories: `new`, `worsening`,
+  `recurring`, `unresolved`, `contradicted`, or `confirmed`.
+- DeepSeek now returns extraction confidence and a short confidence reason as
+  part of its strict JSON contract. The deterministic extractor labels explicit
+  keyword matches as medium confidence and generic unmatched content as low
+  confidence rather than overstating certainty.
+- Risk floors are enforced after model extraction. Safety-critical and
+  contradictory language cannot fall below high risk; worsening symptoms and
+  unresolved care actions cannot fall below medium risk. The persisted signal
+  records whether a floor changed the proposed risk and explains why.
+- Importance is recomputed by the backend from the final risk, delta category,
+  and extraction confidence. The model-proposed score is never trusted as the
+  final ranking, and every stored score includes a human-readable calculation.
+- The abstention policy prevents low extraction confidence, low provenance
+  confidence, and contradicted evidence from entering the 10-second glance.
+  These source-backed signals are preserved as `needs_review` and returned in a
+  separate care-team review queue; patient views do not expose that queue.
+- The frontend glance explains risk, confidence, importance, trust status, and
+  provenance confidence. A dedicated Review queue shows conflicting or
+  low-confidence signals with the abstention reason and a source jump action.
+- `tests/test_delta_engine.py` covers all six categories, deterministic risk
+  floors, low-confidence abstention, review-queue routing, conflicting-signal
+  handling, explainability fields, and exclusion from the glance card.
+
+### Phase 9: Self-Learning, Conflict Detection, and Data Decay
+
+- Added server-recorded `pin`, `comment`, `edit`, and source `highlight`
+  interaction events. Pin/highlight actions have an explicit scoped endpoint;
+  comment and edit events are emitted by their existing server-side mutations,
+  so the learning signal does not depend on client claims.
+- Personal ranking uses only the current actor's prior events and exact
+  highlight IDs. Pin, comment, edit, and highlight-view weights are bounded to
+  a combined maximum boost of 12 points; explicit `less_relevant` feedback can
+  reduce that same net value and routine signals by at most 8 points. Safety
+  signals use the same value, but its floor is zero: negative feedback can
+  cancel a previous boost without pushing safety information below baseline.
+  Explanations use stable labels
+  such as `boosted_by_prior_pins` and `reduced_by_less_relevant_feedback`.
+  Learning never changes clinical risk or trust state, and negative learning is
+  ignored for high-risk, contradicted, or unresolved safety signals.
+- Added deterministic allergy, medication/dose, and open-task conflict
+  detection during AI ingest. Every detected conflict preserves exactly two
+  timeline source IDs, is stored with the aggregate in MemoryRepository and
+  MongoDB Atlas, and appears as `review needed` with two independent source
+  jump actions in the frontend.
+- Added bounded data decay for routine historical signals: 180-day information
+  receives a six-point ranking reduction and 365-day information a twelve-point
+  reduction while its source remains preserved. High-risk, contradicted, and
+  unresolved safety information is exempt from decay and can never be lowered
+  by learning behavior.
+- The synthetic record includes a clinician-confirmed April 2025 baseline
+  signal. It remains accessible as summarized historical context and visibly
+  explains its age-based ranking adjustment.
+- `tests/test_self_learning_importance.py` proves the boost cap, prior-pin
+  explanation, safety non-degradation, historical decay, all four interaction
+  event types, and two-source allergy/medication/task conflict creation.

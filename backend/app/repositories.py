@@ -3,7 +3,16 @@ from typing import Any, Protocol
 
 from pymongo.collection import Collection
 
-from app.models import AuditLog, Comment, Highlight, PatientRecord, TimelineEntry, Version
+from app.models import (
+    AuditLog,
+    Comment,
+    Conflict,
+    Highlight,
+    InteractionEvent,
+    PatientRecord,
+    TimelineEntry,
+    Version,
+)
 
 
 class VersionConflictError(Exception):
@@ -18,6 +27,8 @@ class PatientRecordRepository(Protocol):
     ) -> TimelineEntry: ...
 
     def add_comment(self, comment: Comment) -> Comment: ...
+
+    def add_interaction_event(self, event: InteractionEvent) -> InteractionEvent: ...
 
     def update_comment_status(
         self, patient_id: str, comment_id: str, resolved: bool
@@ -38,6 +49,7 @@ class PatientRecordRepository(Protocol):
         ingest_key: str,
         entry: TimelineEntry,
         highlights: list[Highlight],
+        conflicts: list[Conflict],
         version: Version,
         audit_log: AuditLog,
     ) -> bool: ...
@@ -75,11 +87,16 @@ class MemoryRepository:
         record.comments.append(deepcopy(comment))
         return deepcopy(comment)
 
+    def add_interaction_event(self, event: InteractionEvent) -> InteractionEvent:
+        self._records[event.patient_id].interaction_events.append(deepcopy(event))
+        return deepcopy(event)
+
     def add_ai_ingest(
         self,
         ingest_key: str,
         entry: TimelineEntry,
         highlights: list[Highlight],
+        conflicts: list[Conflict],
         version: Version,
         audit_log: AuditLog,
     ) -> bool:
@@ -89,6 +106,7 @@ class MemoryRepository:
         self._ingest_keys[entry.patient_id].add(ingest_key)
         record.timeline_entries.insert(0, deepcopy(entry))
         record.highlights = deepcopy(highlights) + record.highlights
+        record.conflicts = deepcopy(conflicts) + record.conflicts
         record.versions.append(deepcopy(version))
         record.audit_logs.append(deepcopy(audit_log))
         return True
@@ -237,11 +255,21 @@ class MongoRepository:
             raise KeyError(comment.patient_id)
         return comment.model_copy(deep=True)
 
+    def add_interaction_event(self, event: InteractionEvent) -> InteractionEvent:
+        result = self._collection.update_one(
+            {"patient.id": event.patient_id},
+            {"$push": {"interaction_events": event.model_dump(mode="python")}},
+        )
+        if result.matched_count == 0:
+            raise KeyError(event.patient_id)
+        return event.model_copy(deep=True)
+
     def add_ai_ingest(
         self,
         ingest_key: str,
         entry: TimelineEntry,
         highlights: list[Highlight],
+        conflicts: list[Conflict],
         version: Version,
         audit_log: AuditLog,
     ) -> bool:
@@ -259,6 +287,10 @@ class MongoRepository:
                     },
                     "highlights": {
                         "$each": [item.model_dump(mode="python") for item in highlights],
+                        "$position": 0,
+                    },
+                    "conflicts": {
+                        "$each": [item.model_dump(mode="python") for item in conflicts],
                         "$position": 0,
                     },
                     "versions": version.model_dump(mode="python"),

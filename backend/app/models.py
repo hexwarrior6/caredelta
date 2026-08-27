@@ -53,6 +53,12 @@ class ProvenanceConfidence(StrEnum):
     LOW = "low"
 
 
+class ExtractionConfidence(StrEnum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
 class Patient(BaseModel):
     id: str
     clinic_id: str
@@ -103,6 +109,18 @@ class Highlight(BaseModel):
     risk_reason: str
     trust_status: TrustStatus
     importance_score: int = Field(ge=0, le=100)
+    base_importance_score: int | None = Field(default=None, ge=0, le=100)
+    learning_adjustment: int = Field(default=0, ge=-8, le=12)
+    learning_reason: str | None = None
+    decay_adjustment: int = Field(default=0, ge=-15, le=0)
+    decay_reason: str | None = None
+    extraction_confidence: ExtractionConfidence = ExtractionConfidence.HIGH
+    confidence_reason: str = "Direct, source-backed clinical statement."
+    importance_reason: str = "Ranked from risk, category, and extraction confidence."
+    risk_floor_applied: bool = False
+    risk_floor_reason: str | None = None
+    abstained_from_glance: bool = False
+    abstention_reason: str | None = None
     provenance_pointer: ProvenancePointer
     created_at: datetime
 
@@ -198,6 +216,7 @@ class PatientRecord(BaseModel):
     audit_logs: list[AuditLog]
     interaction_events: list[InteractionEvent]
     conflicts: list[Conflict]
+    review_queue: list[Highlight] = Field(default_factory=list)
     generated_at: datetime
     highlight_pagination: HighlightPagination = Field(
         default_factory=lambda: HighlightPagination(
@@ -238,6 +257,10 @@ class UpdateCommentStatusRequest(BaseModel):
     resolved: bool
 
 
+class CreateInteractionRequest(BaseModel):
+    event_type: Literal["pin", "highlight", "less_relevant"]
+
+
 AIInteractionType = Literal[
     "ai_doctor_consult_summary",
     "ai_nurse_consult_summary",
@@ -270,3 +293,6 @@ class AIIngestResponse(BaseModel):
     ] | None = None
     summary: str
     redacted_phi_types: list[str]
+    promoted_count: int
+    review_queue_count: int
+    conflicts: list[Conflict]

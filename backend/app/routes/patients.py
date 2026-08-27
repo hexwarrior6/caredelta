@@ -22,13 +22,14 @@ from app.models import (
     Comment,
     CreateCommentRequest,
     CreateEntryRequest,
+    CreateInteractionRequest,
     PatientRecord,
     Highlight,
+    InteractionEvent,
     ProvenanceConfidence,
     ProvenancePointer,
     RevertEntryRequest,
     TimelineEntry,
-    TrustStatus,
     UpdateEntryRequest,
     UpdateCommentStatusRequest,
     UserRole,
@@ -38,8 +39,38 @@ from app.models import (
 from app.repositories import PatientRecordRepository, VersionConflictError
 from app.services.patient_records import entry_action, filter_patient_record
 from app.services.ai_ingest import LLMAdapter, extract_with_fallback, redact_phi
+from app.services.delta_engine import evaluate_signal
+from app.services.conflict_detection import detect_conflicts
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
+
+
+def record_entry_interactions(
+    repository: PatientRecordRepository,
+    record: PatientRecord,
+    entry_id: str,
+    context: AuthContext,
+    event_type: str,
+) -> None:
+    linked = [
+        highlight
+        for highlight in record.highlights
+        if highlight.provenance_pointer.entry_id == entry_id
+    ]
+    for highlight in linked or [None]:
+        repository.add_interaction_event(
+            InteractionEvent(
+                id=f"interaction-{uuid4()}",
+                patient_id=record.patient.id,
+                actor_id=context.actor_id,
+                actor_role=AuthorRole(context.role.value),
+                event_type=event_type,
+                highlight_id=highlight.id if highlight else f"entry:{entry_id}",
+                extracted_topic=highlight.category.value if highlight else "general",
+                weight_delta={"comment": 2, "edit": 3}.get(event_type, 0),
+                created_at=datetime.now(timezone.utc),
+            )
+        )
 
 
 @router.post(
@@ -120,16 +151,30 @@ def ingest_ai_scribed_note(
     highlights: list[Highlight] = []
     for signal in extraction.signals:
         start = entry.content.index(signal.source_snippet)
+        evaluation = evaluate_signal(
+            text=signal.text,
+            category=signal.category,
+            proposed_risk=signal.risk_level,
+            extraction_confidence=signal.extraction_confidence,
+            provenance_confidence=ProvenanceConfidence.HIGH,
+        )
         highlights.append(
             Highlight(
                 id=f"highlight-{uuid4()}",
                 patient_id=patient_id,
                 text=signal.text,
                 category=signal.category,
-                risk_level=signal.risk_level,
+                risk_level=evaluation.risk_level,
                 risk_reason=signal.risk_reason,
-                trust_status=TrustStatus.AI_SUGGESTED,
-                importance_score=signal.importance_score,
+                trust_status=evaluation.trust_status,
+                importance_score=evaluation.importance_score,
+                extraction_confidence=signal.extraction_confidence,
+                confidence_reason=signal.confidence_reason,
+                importance_reason=evaluation.importance_reason,
+                risk_floor_applied=evaluation.risk_floor_applied,
+                risk_floor_reason=evaluation.risk_floor_reason,
+                abstained_from_glance=evaluation.abstained_from_glance,
+                abstention_reason=evaluation.abstention_reason,
                 provenance_pointer=ProvenancePointer(
                     id=f"provenance-{uuid4()}",
                     patient_id=patient_id,
@@ -144,6 +189,7 @@ def ingest_ai_scribed_note(
                 created_at=now,
             )
         )
+    conflicts = detect_conflicts(record, entry, highlights, now)
     version = Version(
         id=f"version-{uuid4()}",
         patient_id=patient_id,
@@ -168,7 +214,7 @@ def ingest_ai_scribed_note(
         request_id=f"request-{uuid4()}",
     )
     inserted = repository.add_ai_ingest(
-        ingest_key, entry, highlights, version, audit_log
+        ingest_key, entry, highlights, conflicts, version, audit_log
     )
     if not inserted:
         raise HTTPException(
@@ -182,7 +228,56 @@ def ingest_ai_scribed_note(
         fallback_reason=fallback_reason,
         summary=extraction.summary,
         redacted_phi_types=redaction.redacted_phi_types,
+        promoted_count=sum(not item.abstained_from_glance for item in highlights),
+        review_queue_count=sum(item.abstained_from_glance for item in highlights),
+        conflicts=conflicts,
     )
+
+
+@router.post(
+    "/{patient_id}/highlights/{highlight_id}/interactions",
+    response_model=InteractionEvent,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_highlight_interaction(
+    patient_id: str,
+    highlight_id: str,
+    payload: CreateInteractionRequest,
+    repository: Annotated[PatientRecordRepository, Depends(get_repository)],
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+) -> InteractionEvent:
+    record = repository.get_patient_record(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+    require_clinic_scope(context, record.patient.clinic_id)
+    if payload.event_type in {"pin", "less_relevant"}:
+        require_action(context, Action.PIN_HIGHLIGHT)
+    highlight = next((item for item in record.highlights if item.id == highlight_id), None)
+    if highlight is None:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+    source_entry = next(
+        (
+            item
+            for item in record.timeline_entries
+            if item.id == highlight.provenance_pointer.entry_id
+        ),
+        None,
+    )
+    if source_entry is None:
+        raise HTTPException(status_code=404, detail="Highlight source not found")
+    require_action(context, entry_action(source_entry))
+    event = InteractionEvent(
+        id=f"interaction-{uuid4()}",
+        patient_id=patient_id,
+        actor_id=context.actor_id,
+        actor_role=AuthorRole(context.role.value),
+        event_type=payload.event_type,
+        highlight_id=highlight.id,
+        extracted_topic=highlight.category.value,
+        weight_delta={"pin": 4, "highlight": 1, "less_relevant": -2}[payload.event_type],
+        created_at=datetime.now(timezone.utc),
+    )
+    return repository.add_interaction_event(event)
 
 
 def require_entry_edit(context: AuthContext, entry: TimelineEntry) -> None:
@@ -375,7 +470,9 @@ def create_comment(
         mentions=payload.mentions,
         assigned_role=payload.assigned_role,
     )
-    return repository.add_comment(comment)
+    created = repository.add_comment(comment)
+    record_entry_interactions(repository, record, entry_id, context, "comment")
+    return created
 
 
 @router.patch(
@@ -456,6 +553,7 @@ def update_timeline_entry(
         ) from error
     if updated is None:
         raise HTTPException(status_code=404, detail="Timeline entry not found")
+    record_entry_interactions(repository, record, entry_id, context, "edit")
     return updated
 
 

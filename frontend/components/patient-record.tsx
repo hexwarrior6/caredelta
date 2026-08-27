@@ -362,10 +362,33 @@ export function PatientRecord() {
 
   function revealSource(highlight: Highlight) {
     setFocusedHighlight(highlight);
+    void recordHighlightInteraction(highlight, "highlight");
     requestAnimationFrame(() => {
       document
         .getElementById(highlight.provenance_pointer.entry_id)
         ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
+  async function recordHighlightInteraction(
+    highlight: Highlight,
+    eventType: "pin" | "highlight" | "less_relevant",
+  ) {
+    try {
+      await postJson(
+        `/api/patients/${patientId}/highlights/${highlight.id}/interactions`,
+        { event_type: eventType },
+      );
+      await loadRecord(undefined, highlightPage);
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to record interaction");
+    }
+  }
+
+  function revealConflictSource(entryId: string) {
+    setFocusedHighlight(null);
+    requestAnimationFrame(() => {
+      document.getElementById(entryId)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
   }
 
@@ -487,7 +510,7 @@ export function PatientRecord() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-300">10-second glance · {role} view</p>
               <h2 className="mt-2 text-2xl font-semibold">What changed and needs action</h2>
-              <p className="mt-2 text-xs text-teal-200/70">Backend-ranked by urgency · 3 signals per page</p>
+              <p className="mt-2 text-xs text-teal-200/70">Trust-filtered and backend-ranked · 3 signals per page</p>
             </div>
             <p className="max-w-xl text-sm leading-6 text-teal-100/75">{patient.summary}</p>
           </div>
@@ -502,10 +525,8 @@ export function PatientRecord() {
               </div>
             )}
             {record.highlights.map((highlight) => (
-              <button
+              <article
                 key={highlight.id}
-                type="button"
-                onClick={() => revealSource(highlight)}
                 className="group p-6 text-left transition hover:bg-white/[0.06] sm:p-8"
               >
                 <div className="flex items-center justify-between gap-3">
@@ -521,11 +542,55 @@ export function PatientRecord() {
                 <p className="mt-3 text-sm leading-6 text-teal-100/70">{highlight.risk_reason}</p>
                 <div className="mt-5 flex items-center justify-between text-xs">
                   <span className="text-teal-100/70">
-                    {trustLabel(highlight.trust_status)} · {provenanceLabel(highlight.provenance_pointer.offset_confidence)}
+                    {trustLabel(highlight.trust_status)} · {highlight.extraction_confidence} extraction · {provenanceLabel(highlight.provenance_pointer.offset_confidence)}
                   </span>
-                  <span className="font-semibold text-teal-300 group-hover:text-white">View source ↓</span>
+                  <span className="font-semibold text-teal-300">Effective importance</span>
                 </div>
-              </button>
+                <div className="mt-4 space-y-1.5 border-t border-white/10 pt-4 text-xs leading-5 text-teal-100/65">
+                  <p><span className="font-semibold text-teal-200">Risk:</span> {highlight.risk_floor_reason ?? highlight.risk_reason}</p>
+                  <p><span className="font-semibold text-teal-200">Confidence:</span> {highlight.confidence_reason}</p>
+                  <p><span className="font-semibold text-teal-200">Importance:</span> {highlight.importance_reason}</p>
+                  {highlight.learning_adjustment > 0 && (
+                    <p className="text-emerald-300"><span className="font-semibold">Learning +{highlight.learning_adjustment}:</span> {highlight.learning_reason}</p>
+                  )}
+                  {highlight.learning_adjustment < 0 && (
+                    <p className="text-amber-300"><span className="font-semibold">Learning {highlight.learning_adjustment}:</span> {highlight.learning_reason}</p>
+                  )}
+                  {highlight.learning_reason?.includes("safety_protected_from_negative_learning") && (
+                    <p className="text-rose-300"><span className="font-semibold">Safety guard:</span> negative learning was ignored for this signal.</p>
+                  )}
+                  {highlight.decay_reason && (
+                    <p><span className="font-semibold text-teal-200">Data decay {highlight.decay_adjustment}:</span> {highlight.decay_reason}</p>
+                  )}
+                </div>
+                <div className={`mt-5 grid gap-2 ${(role === "clinician" || role === "admin") ? "grid-cols-[minmax(0,1fr)_5.5rem_5.5rem]" : "grid-cols-1"}`}>
+                  <button
+                    type="button"
+                    onClick={() => revealSource(highlight)}
+                    className="min-w-0 rounded-lg border border-white/20 px-2.5 py-1.5 text-xs font-semibold text-teal-200 hover:bg-white/10 hover:text-white"
+                  >
+                    Source ↓
+                  </button>
+                  {(role === "clinician" || role === "admin") && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void recordHighlightInteraction(highlight, "pin")}
+                        className="rounded-lg border border-emerald-300/50 bg-emerald-300/10 px-2 py-1.5 text-xs font-semibold text-emerald-200 hover:border-emerald-200 hover:bg-emerald-300/20"
+                      >
+                        Pin <span className="font-mono">+4</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void recordHighlightInteraction(highlight, "less_relevant")}
+                        className="rounded-lg border border-amber-300/50 bg-amber-300/10 px-2 py-1.5 text-xs font-semibold text-amber-200 hover:border-amber-200 hover:bg-amber-300/20"
+                      >
+                        Reduce <span className="font-mono">−2</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </article>
             ))}
           </div>
           {record.highlight_pagination.total_pages > 1 && (
@@ -678,7 +743,9 @@ export function PatientRecord() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-slate-900">{ingestResult.entry.title}</p>
-                        <p className="mt-1 text-xs font-medium text-slate-500">Ingest complete · {ingestResult.highlights.length} highlight(s)</p>
+                        <p className="mt-1 text-xs font-medium text-slate-500">
+                          Ingest complete · {ingestResult.promoted_count} promoted · {ingestResult.review_queue_count} queued for review
+                        </p>
                         <p className="mt-1 text-sm text-slate-600">{ingestResult.summary}</p>
                       </div>
                       <span className={`rounded-full px-3 py-1 text-xs font-semibold ${ingestResult.extraction_method === "deepseek" ? "bg-emerald-200 text-emerald-900" : "bg-amber-200 text-amber-900"}`}>
@@ -925,6 +992,41 @@ export function PatientRecord() {
           </section>
 
           <aside className="space-y-5 lg:sticky lg:top-6 lg:self-start">
+            {role !== "patient" && (
+              <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Review queue</p>
+                    <h2 className="mt-1 font-semibold text-amber-950">Abstained signals</h2>
+                  </div>
+                  <span className="grid h-7 min-w-7 place-items-center rounded-full bg-amber-200 px-2 text-xs font-bold text-amber-900">{record.review_queue.length}</span>
+                </div>
+                {record.review_queue.length === 0 ? (
+                  <p className="mt-4 text-sm leading-6 text-amber-800/75">No low-confidence or conflicting signals need review.</p>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    {record.review_queue.map((highlight) => (
+                      <button
+                        key={highlight.id}
+                        type="button"
+                        onClick={() => revealSource(highlight)}
+                        className="w-full rounded-xl border border-amber-200 bg-white p-4 text-left transition hover:border-amber-400"
+                      >
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase">
+                          <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">Review needed</span>
+                          <span className="text-amber-700">{categoryLabels[highlight.category]}</span>
+                          <span className="text-slate-400">{highlight.extraction_confidence} confidence</span>
+                        </div>
+                        <p className="mt-3 text-sm font-semibold leading-5 text-slate-900">{highlight.text}</p>
+                        <p className="mt-2 text-xs leading-5 text-slate-600">{highlight.abstention_reason ?? highlight.confidence_reason}</p>
+                        <p className="mt-2 text-xs font-semibold text-amber-700">Inspect source →</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <h2 className="font-semibold text-slate-950">Open actions</h2>
@@ -944,11 +1046,33 @@ export function PatientRecord() {
               </div>
             </section>
 
-            {record.conflicts[0] && (
+            {record.conflicts.length > 0 && (
               <section className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
                 <p className="text-xs font-semibold uppercase tracking-wider text-rose-600">Conflict review</p>
-                <p className="mt-3 text-sm font-semibold leading-6 text-rose-950">{record.conflicts[0].summary}</p>
-                <p className="mt-3 text-xs text-rose-700">Two source entries preserved · no silent overwrite</p>
+                <div className="mt-3 space-y-4">
+                  {record.conflicts.map((conflict) => (
+                    <div key={conflict.id} className="rounded-xl border border-rose-200 bg-white p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold uppercase text-rose-600">{conflict.conflict_type} · review needed</span>
+                        <span className="text-[11px] font-semibold uppercase text-rose-400">{conflict.severity}</span>
+                      </div>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-rose-950">{conflict.summary}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        {conflict.source_entry_ids.slice(0, 2).map((entryId, index) => (
+                          <button
+                            key={entryId}
+                            type="button"
+                            onClick={() => revealConflictSource(entryId)}
+                            className="rounded-lg border border-rose-200 px-2 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                          >
+                            Source {index + 1} ↑
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-rose-700">Both source entries are preserved · no silent overwrite</p>
               </section>
             )}
 

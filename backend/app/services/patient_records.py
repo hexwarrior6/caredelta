@@ -7,6 +7,8 @@ from app.models import (
     TimelineEntry,
     VisibilityScope,
 )
+from app.services.delta_engine import is_glance_eligible
+from app.services.self_learning import apply_bounded_learning
 
 
 def paginate_glance_highlights(highlights, page: int, page_size: int):
@@ -66,11 +68,32 @@ def filter_patient_record(
 
     # A signal is hidden when its source entry is hidden. This prevents provenance
     # metadata from becoming a side channel for restricted note content.
+    actor_events = [
+        event for event in record.interaction_events if event.actor_id == context.actor_id
+    ]
+    visible_highlights = [
+        apply_bounded_learning(highlight, actor_events)
+        for highlight in record.highlights
+        if highlight.provenance_pointer.entry_id in visible_entry_ids
+    ]
+    review_queue = (
+        [
+            highlight
+            for highlight in visible_highlights
+            if highlight.abstained_from_glance
+            or highlight.trust_status.value == "needs_review"
+        ]
+        if context.role.value != "patient"
+        else []
+    )
     highlights, highlight_pagination = paginate_glance_highlights(
         [
             highlight
-            for highlight in record.highlights
-            if highlight.provenance_pointer.entry_id in visible_entry_ids
+            for highlight in visible_highlights
+            if is_glance_eligible(
+                trust_status=highlight.trust_status,
+                abstained=highlight.abstained_from_glance,
+            )
             and (
                 context.role.value != "patient"
                 or highlight.trust_status.value == "clinician_confirmed"
@@ -113,6 +136,11 @@ def filter_patient_record(
             "audit_logs": audit_logs,
             "interaction_events": interaction_events,
             "conflicts": conflicts,
+            "review_queue": sorted(
+                review_queue,
+                key=lambda highlight: (highlight.importance_score, highlight.created_at),
+                reverse=True,
+            ),
             "highlight_pagination": highlight_pagination,
         }
     )

@@ -203,6 +203,24 @@ idempotent by interaction type plus source ID; duplicate or concurrent
 submissions return `409 Conflict` before creating another timeline entry or
 highlight set.
 
+CareDelta's Delta Engine classifies longitudinal change as new, worsening,
+recurring, unresolved, contradicted, or confirmed. It applies deterministic
+risk floors and recomputes importance from risk, category, and extraction
+confidence. Low-confidence or conflicting signals abstain from the glance card
+and remain source-backed in a clinician review queue, with plain-language
+explanations for risk, confidence, and ranking.
+
+The radar learns conservatively from clinician behavior. Pins, comments, edits,
+and source highlights update one per-user net learning adjustment capped at
++12; explicit “Less relevant” feedback subtracts from that same value, down to
+-8 for routine signals. Safety signals stop at zero, so negative feedback can
+undo a prior boost without lowering them below baseline. Explanations include `boosted_by_prior_pins` and
+`reduced_by_less_relevant_feedback`. Feedback never rewrites clinical risk, and
+negative learning is ignored for safety signals. Allergy, medication, and open-task conflicts are placed
+in review with both sources preserved. Routine old signals receive bounded data
+decay, while high-risk, contradicted, and unresolved safety information is
+exempt from age-based downgrading.
+
 ## Access control
 
 The backend enforces an action matrix for `patient`, `staff`, `clinician`, and
