@@ -13,6 +13,7 @@ class Action(StrEnum):
     READ_CLINICIAN_SECTIONS = "read_clinician_sections"
     READ_RAW_AI_TRANSCRIPT = "read_raw_ai_transcript"
     READ_INTERNAL_COMMENTS = "read_internal_comments"
+    READ_REVISION_HISTORY = "read_revision_history"
     CREATE_STAFF_NOTE = "create_staff_note"
     EDIT_STAFF_NOTE = "edit_staff_note"
     EDIT_CLINICIAN_SECTION = "edit_clinician_section"
@@ -23,6 +24,7 @@ class Action(StrEnum):
     PIN_HIGHLIGHT = "pin_highlight"
     ROLLBACK_ENTRY = "rollback_entry"
     READ_AUDIT_LOG = "read_audit_log"
+    INGEST_AI_NOTE = "ingest_ai_note"
 
 
 ACTION_MATRIX: dict[Action, frozenset[UserRole]] = {
@@ -38,6 +40,9 @@ ACTION_MATRIX: dict[Action, frozenset[UserRole]] = {
         {UserRole.CLINICIAN, UserRole.ADMIN}
     ),
     Action.READ_INTERNAL_COMMENTS: frozenset(
+        {UserRole.STAFF, UserRole.CLINICIAN, UserRole.ADMIN}
+    ),
+    Action.READ_REVISION_HISTORY: frozenset(
         {UserRole.STAFF, UserRole.CLINICIAN, UserRole.ADMIN}
     ),
     Action.CREATE_STAFF_NOTE: frozenset({UserRole.STAFF, UserRole.ADMIN}),
@@ -58,6 +63,7 @@ ACTION_MATRIX: dict[Action, frozenset[UserRole]] = {
         {UserRole.STAFF, UserRole.CLINICIAN, UserRole.ADMIN}
     ),
     Action.READ_AUDIT_LOG: frozenset({UserRole.CLINICIAN, UserRole.ADMIN}),
+    Action.INGEST_AI_NOTE: frozenset({UserRole.CLINICIAN, UserRole.ADMIN}),
 }
 
 

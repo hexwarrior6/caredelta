@@ -3,7 +3,7 @@ from typing import Any, Protocol
 
 from pymongo.collection import Collection
 
-from app.models import AuditLog, Comment, PatientRecord, TimelineEntry, Version
+from app.models import AuditLog, Comment, Highlight, PatientRecord, TimelineEntry, Version
 
 
 class VersionConflictError(Exception):
@@ -13,7 +13,9 @@ class VersionConflictError(Exception):
 class PatientRecordRepository(Protocol):
     def get_patient_record(self, patient_id: str) -> PatientRecord | None: ...
 
-    def add_timeline_entry(self, entry: TimelineEntry) -> TimelineEntry: ...
+    def add_timeline_entry(
+        self, entry: TimelineEntry, version: Version, audit_log: AuditLog
+    ) -> TimelineEntry: ...
 
     def add_comment(self, comment: Comment) -> Comment: ...
 
@@ -31,26 +33,65 @@ class PatientRecordRepository(Protocol):
         audit_log: AuditLog,
     ) -> TimelineEntry | None: ...
 
+    def add_ai_ingest(
+        self,
+        ingest_key: str,
+        entry: TimelineEntry,
+        highlights: list[Highlight],
+        version: Version,
+        audit_log: AuditLog,
+    ) -> bool: ...
+
 
 class MemoryRepository:
     """In-process repository used by the local demo and test suite."""
 
     def __init__(self, records: list[PatientRecord]) -> None:
         self._records = {record.patient.id: deepcopy(record) for record in records}
+        self._ingest_keys = {
+            record.patient.id: {
+                f"{highlight.provenance_pointer.source_type}:{highlight.provenance_pointer.source_id}"
+                for highlight in record.highlights
+                if highlight.provenance_pointer.source_type.startswith("ai_")
+            }
+            for record in records
+        }
 
     def get_patient_record(self, patient_id: str) -> PatientRecord | None:
         record = self._records.get(patient_id)
         return deepcopy(record) if record else None
 
-    def add_timeline_entry(self, entry: TimelineEntry) -> TimelineEntry:
+    def add_timeline_entry(
+        self, entry: TimelineEntry, version: Version, audit_log: AuditLog
+    ) -> TimelineEntry:
         record = self._records[entry.patient_id]
         record.timeline_entries.insert(0, deepcopy(entry))
+        record.versions.append(deepcopy(version))
+        record.audit_logs.append(deepcopy(audit_log))
         return deepcopy(entry)
 
     def add_comment(self, comment: Comment) -> Comment:
         record = self._records[comment.patient_id]
         record.comments.append(deepcopy(comment))
         return deepcopy(comment)
+
+    def add_ai_ingest(
+        self,
+        ingest_key: str,
+        entry: TimelineEntry,
+        highlights: list[Highlight],
+        version: Version,
+        audit_log: AuditLog,
+    ) -> bool:
+        if ingest_key in self._ingest_keys[entry.patient_id]:
+            return False
+        record = self._records[entry.patient_id]
+        self._ingest_keys[entry.patient_id].add(ingest_key)
+        record.timeline_entries.insert(0, deepcopy(entry))
+        record.highlights = deepcopy(highlights) + record.highlights
+        record.versions.append(deepcopy(version))
+        record.audit_logs.append(deepcopy(audit_log))
+        return True
 
     def update_comment_status(
         self, patient_id: str, comment_id: str, resolved: bool
@@ -110,6 +151,56 @@ class MongoRepository:
             {"$setOnInsert": seed_record.model_dump(mode="python")},
             upsert=True,
         )
+        record = self.get_patient_record(seed_record.patient.id)
+        if record is None:
+            return
+        ingest_keys = sorted(
+            {
+                f"{highlight.provenance_pointer.source_type}:{highlight.provenance_pointer.source_id}"
+                for highlight in record.highlights
+                if highlight.provenance_pointer.source_type.startswith("ai_")
+            }
+        )
+        if ingest_keys:
+            self._collection.update_one(
+                {"patient.id": record.patient.id},
+                {"$addToSet": {"ingest_source_keys": {"$each": ingest_keys}}},
+            )
+        known_versions = {
+            (version.entry_id, version.version_number) for version in record.versions
+        }
+        missing_versions = [
+            Version(
+                id=f"version-backfill-{entry.id}-{entry.version}",
+                patient_id=record.patient.id,
+                entry_id=entry.id,
+                version_number=entry.version,
+                content_snapshot=entry.content,
+                changed_by=entry.author_id,
+                changed_by_role=entry.author_role,
+                created_at=entry.timestamp,
+                change_summary="Current snapshot backfilled during migration",
+            ).model_dump(mode="python")
+            for entry in record.timeline_entries
+            if entry.entry_type
+            in {"staff_note", "clinician_note", "clinician_section"}
+            and (entry.id, entry.version) not in known_versions
+        ]
+        for missing_version in missing_versions:
+            self._collection.update_one(
+                {
+                    "patient.id": record.patient.id,
+                    "versions": {
+                        "$not": {
+                            "$elemMatch": {
+                                "entry_id": missing_version["entry_id"],
+                                "version_number": missing_version["version_number"],
+                            }
+                        }
+                    },
+                },
+                {"$push": {"versions": missing_version}},
+            )
 
     def get_patient_record(self, patient_id: str) -> PatientRecord | None:
         document = self._collection.find_one(
@@ -117,7 +208,9 @@ class MongoRepository:
         )
         return PatientRecord.model_validate(document) if document else None
 
-    def add_timeline_entry(self, entry: TimelineEntry) -> TimelineEntry:
+    def add_timeline_entry(
+        self, entry: TimelineEntry, version: Version, audit_log: AuditLog
+    ) -> TimelineEntry:
         result = self._collection.update_one(
             {"patient.id": entry.patient_id},
             {
@@ -125,7 +218,9 @@ class MongoRepository:
                     "timeline_entries": {
                         "$each": [entry.model_dump(mode="python")],
                         "$position": 0,
-                    }
+                    },
+                    "versions": version.model_dump(mode="python"),
+                    "audit_logs": audit_log.model_dump(mode="python"),
                 }
             },
         )
@@ -141,6 +236,37 @@ class MongoRepository:
         if result.matched_count == 0:
             raise KeyError(comment.patient_id)
         return comment.model_copy(deep=True)
+
+    def add_ai_ingest(
+        self,
+        ingest_key: str,
+        entry: TimelineEntry,
+        highlights: list[Highlight],
+        version: Version,
+        audit_log: AuditLog,
+    ) -> bool:
+        result = self._collection.update_one(
+            {
+                "patient.id": entry.patient_id,
+                "ingest_source_keys": {"$ne": ingest_key},
+            },
+            {
+                "$addToSet": {"ingest_source_keys": ingest_key},
+                "$push": {
+                    "timeline_entries": {
+                        "$each": [entry.model_dump(mode="python")],
+                        "$position": 0,
+                    },
+                    "highlights": {
+                        "$each": [item.model_dump(mode="python") for item in highlights],
+                        "$position": 0,
+                    },
+                    "versions": version.model_dump(mode="python"),
+                    "audit_logs": audit_log.model_dump(mode="python"),
+                }
+            },
+        )
+        return result.matched_count == 1
 
     def update_comment_status(
         self, patient_id: str, comment_id: str, resolved: bool

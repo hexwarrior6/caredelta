@@ -47,6 +47,12 @@ class TrustStatus(StrEnum):
     NEEDS_REVIEW = "needs_review"
 
 
+class ProvenanceConfidence(StrEnum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
 class Patient(BaseModel):
     id: str
     clinic_id: str
@@ -85,7 +91,7 @@ class ProvenancePointer(BaseModel):
     source_quote: str
     start_offset: int = Field(ge=0)
     end_offset: int = Field(ge=0)
-    offset_confidence: str
+    offset_confidence: ProvenanceConfidence
 
 
 class Highlight(BaseModel):
@@ -175,6 +181,13 @@ class Conflict(BaseModel):
     detected_at: datetime
 
 
+class HighlightPagination(BaseModel):
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1)
+    total_items: int = Field(ge=0)
+    total_pages: int = Field(ge=1)
+
+
 class PatientRecord(BaseModel):
     patient: Patient
     highlights: list[Highlight]
@@ -186,6 +199,11 @@ class PatientRecord(BaseModel):
     interaction_events: list[InteractionEvent]
     conflicts: list[Conflict]
     generated_at: datetime
+    highlight_pagination: HighlightPagination = Field(
+        default_factory=lambda: HighlightPagination(
+            page=1, page_size=3, total_items=0, total_pages=1
+        )
+    )
 
 
 class AuthContext(BaseModel):
@@ -205,6 +223,11 @@ class UpdateEntryRequest(BaseModel):
     expected_version: int = Field(ge=1)
 
 
+class RevertEntryRequest(BaseModel):
+    target_version: int = Field(ge=1)
+    expected_version: int = Field(ge=1)
+
+
 class CreateCommentRequest(BaseModel):
     body: str = Field(min_length=1, max_length=5_000)
     mentions: list[str] = Field(default_factory=list)
@@ -213,3 +236,38 @@ class CreateCommentRequest(BaseModel):
 
 class UpdateCommentStatusRequest(BaseModel):
     resolved: bool
+
+
+AIInteractionType = Literal[
+    "ai_doctor_consult_summary",
+    "ai_nurse_consult_summary",
+    "ai_patient_session_summary",
+]
+
+
+class AIRedactionPreviewRequest(BaseModel):
+    transcript: str = Field(min_length=1, max_length=50_000)
+
+
+class AIRedactionPreviewResponse(BaseModel):
+    redacted_text: str
+    redacted_phi_types: list[str]
+    warning: str | None = None
+
+
+class AIIngestRequest(BaseModel):
+    transcript: str = Field(min_length=1, max_length=50_000)
+    title: str = Field(default="AI-scribed consultation", min_length=1, max_length=160)
+    source_id: str = Field(min_length=1, max_length=160)
+    interaction_type: AIInteractionType
+
+
+class AIIngestResponse(BaseModel):
+    entry: TimelineEntry
+    highlights: list[Highlight]
+    extraction_method: Literal["deepseek", "fallback"]
+    fallback_reason: Literal[
+        "llm_unavailable", "invalid_json", "timeout", "provenance_unresolved"
+    ] | None = None
+    summary: str
+    redacted_phi_types: list[str]

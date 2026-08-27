@@ -557,3 +557,90 @@ README and technical brief stay consistent with the actual implementation.
   `expected_version` match and write revision/audit data in the same update.
 - A live development-Atlas check confirmed one idempotent seed document, five
   timeline entries, successful model hydration, and all configured indexes.
+
+### Phase 5: Revision History and Revert
+
+- New editable notes create a complete version 1 snapshot; every edit atomically
+  increments the entry version and appends the complete resulting note snapshot.
+- Revert accepts a target version plus `expected_version`, restores the selected
+  snapshot, and appends a new higher version rather than changing old history.
+- Stale edits and reverts return `409 Conflict` through the same optimistic
+  concurrency boundary in `MemoryRepository` and `MongoRepository`.
+- Revision history has its own read action for staff, clinician, and admin roles;
+  entry visibility and existing ownership rules still constrain edit and revert.
+- Audit logs contain action, actor, entity, changed-field names, timestamps, and
+  request IDs only. Raw current, previous, and reverted note bodies live solely
+  in protected version snapshots, never in audit metadata.
+- The timeline UI offers role-authorized editing, a previous/current comparison,
+  complete version metadata, and explicit revert controls.
+
+### Phase 6: Provenance and Highlight Jump
+
+- `ProvenancePointer.offset_confidence` is now a constrained high/medium/low
+  value, not an arbitrary string.
+- Every seeded highlight stores a pointer to its source timeline entry, source
+  quote, source metadata, and exact character span.
+- `tests/test_highlight_provenance.py` verifies that every returned highlight
+  resolves to the exact timeline substring and that Scenario A uses the reliever
+  highlight to jump to the patient check-in source span.
+- The glance card displays provenance confidence. Clicking a highlight scrolls
+  to the source timeline entry, marks the supporting text span, and displays the
+  confidence beside the source label.
+
+### Phase 7: AI Ingest and PHI Redaction
+
+- Added a clinician/admin-only AI ingest endpoint with the same clinic-scope and
+  server-side action enforcement as the rest of the patient record.
+- Added a protected redaction-preview endpoint. The frontend displays the exact
+  sanitized payload and detected PHI categories before enabling ingest, while
+  the ingest endpoint independently repeats redaction and never trusts the
+  preview result.
+- The backend redacts the known patient name, email, phone, and common patient
+  or medical ID formats before invoking any LLM adapter. The sanitized text is
+  also the stored AI-scribed source so provenance offsets cannot point into PHI.
+- PHI handling is a layered local pipeline: Python `phonenumbers` with Singapore
+  metadata detects compact, spaced, dashed, and international phone formats;
+  contextual patterns detect self-introduced, labelled, and honorific-prefixed
+  names even when they differ from the patient profile; structured rules cover
+  email and NRIC/medical IDs. No external PII service sees the transcript.
+- Added an OpenAI-compatible DeepSeek adapter configured by base URL, model, API
+  key, and timeout. The adapter requests JSON-only output and validates it using
+  a strict Pydantic contract with unknown fields rejected.
+- DeepSeek extraction explicitly disables the model's default high-effort
+  thinking mode, caps output at 1,200 tokens, and uses a 30-second timeout. This
+  keeps structured extraction responsive while retaining deterministic fallback
+  for genuine service failures. A live synthetic, non-persistent probe returned
+  through the `deepseek` path with two validated source-grounded signals.
+- Model signals without an exact `source_snippet` in the sanitized transcript
+  are rejected. Network, timeout, response-shape, JSON, and grounding failures
+  converge on a deterministic keyword-based extractor that emits up to five
+  reviewable, source-grounded signals.
+- Successful and fallback ingestion atomically append a clinician-visible
+  interaction-specific system entry, full version snapshot, metadata-only audit
+  event, and one or more `ai_suggested` highlights with exact provenance
+  pointers. Supported entry types are doctor consult, nurse consult, and patient
+  session summaries.
+- Added the complete clinician/admin ingest panel: interaction selection,
+  transcript and source inputs, redaction warning/preview, Run ingest action,
+  extraction summary, DeepSeek/fallback indicator, and explicit timeout,
+  invalid-JSON, unavailable-LLM, and unresolved-provenance states. Successful
+  ingest refreshes timeline and glance data and focuses the new source entry.
+- `tests/test_ai_ingest.py` uses mock adapters and `MemoryRepository` to prove
+  that name, phone, ID, and email values never reach the adapter; invalid JSON,
+  timeouts, and ungrounded provenance trigger fallback; every generated signal
+  resolves to a stored system entry span; and raw transcript content is absent
+  from audit metadata. The integration test covers preview, ingest, aggregate
+  reload, system entry visibility, and highlight-to-source resolution.
+- The reported `Tan Mei Ling` / Singapore local-phone failure case is a permanent
+  regression fixture. It asserts that name, NRIC, local phone, and email are
+  absent from both preview and mock-adapter input while medication doses remain
+  intact; additional parametrized tests cover common Singapore phone formats.
+- AI ingest now uses `interaction_type + source_id` as its idempotency key.
+  Existing Mongo records are backfilled with keys during initialization, normal
+  duplicates are rejected before an LLM call, and the Mongo write independently
+  applies the same key as an atomic condition to prevent concurrent duplicates.
+- The 10-second glance uses backend pagination with three highlights per page.
+  Ranking is strictly importance score first and recency second, keeping the
+  first page fast to scan while allowing clinicians to browse every lower-ranked
+  signal through compact previous/next controls with the current page indicator.
+  Timeline history remains intact.

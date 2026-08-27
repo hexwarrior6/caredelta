@@ -1,5 +1,10 @@
 export type RiskLevel = "low" | "medium" | "high";
 export type UserRole = "patient" | "staff" | "clinician" | "admin";
+export type AIInteractionType =
+  | "ai_doctor_consult_summary"
+  | "ai_nurse_consult_summary"
+  | "ai_patient_session_summary";
+export type ProvenanceConfidence = "high" | "medium" | "low";
 export type SignalCategory =
   | "new"
   | "worsening"
@@ -29,7 +34,7 @@ export type ProvenancePointer = {
   source_quote: string;
   start_offset: number;
   end_offset: number;
-  offset_confidence: string;
+  offset_confidence: ProvenanceConfidence;
 };
 
 export type Highlight = {
@@ -47,6 +52,7 @@ export type Highlight = {
 export type TimelineEntry = {
   id: string;
   author_role: UserRole | "system";
+  author_id: string;
   author_name: string;
   timestamp: string;
   entry_type: string;
@@ -54,6 +60,17 @@ export type TimelineEntry = {
   content: string;
   version: number;
   source_label: string;
+};
+
+export type Version = {
+  id: string;
+  entry_id: string;
+  version_number: number;
+  content_snapshot: string;
+  changed_by: string;
+  changed_by_role: UserRole | "system";
+  created_at: string;
+  change_summary: string;
 };
 
 export type PatientTask = {
@@ -92,9 +109,35 @@ export type PatientRecord = {
   tasks: PatientTask[];
   timeline_entries: TimelineEntry[];
   comments: Comment[];
-  versions: unknown[];
+  versions: Version[];
   audit_logs: unknown[];
   interaction_events: unknown[];
   conflicts: Conflict[];
   generated_at: string;
+  highlight_pagination: {
+    page: number;
+    page_size: number;
+    total_items: number;
+    total_pages: number;
+  };
+};
+
+export type AIRedactionPreview = {
+  redacted_text: string;
+  redacted_phi_types: string[];
+  warning: string | null;
+};
+
+export type AIIngestResult = {
+  entry: TimelineEntry;
+  highlights: Highlight[];
+  extraction_method: "deepseek" | "fallback";
+  fallback_reason:
+    | "llm_unavailable"
+    | "invalid_json"
+    | "timeout"
+    | "provenance_unresolved"
+    | null;
+  summary: string;
+  redacted_phi_types: string[];
 };
