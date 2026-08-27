@@ -77,6 +77,23 @@ Runtime persistence:
 Vercel Next.js frontend -> Python API backend -> MongoDB Atlas
 ```
 
+Selected delivery pipeline:
+
+- GitHub Actions is the platform-independent quality gate for pushes and pull
+  requests to `development` and `main`.
+- The FastAPI backend is packaged as a non-root Docker image and deployed as a
+  persistent Railway service from the `/backend` monorepo root.
+- The Next.js frontend is deployed from `/frontend` on Vercel to retain native
+  Next.js builds and automatic pull-request preview deployments.
+- Railway and Vercel GitHub autodeploys must deploy production from `main` only.
+- Railway `Wait for CI` must be enabled so a failing GitHub check prevents the
+  backend deployment. Branch protection on `main` should require both CI jobs.
+- Deployment credentials live only in platform environment-variable stores.
+  GitHub Actions intentionally runs against `MemoryRepository` without external
+  service secrets.
+- The Railway `/health` check gates backend rollout. The frontend production
+  build is the Vercel deployment gate.
+
 If implementation time becomes tight, a Next.js-only backend remains a fallback.
 The preferred direction is Python backend plus Next frontend because the required
 micro-tests are backend-heavy and Python gives faster iteration for redaction,
@@ -436,3 +453,74 @@ Implementation approach:
 Any new implementation decision, product idea, scope tradeoff, or architecture
 change discussed during the build should be added to this document so the final
 README and technical brief stay consistent with the actual implementation.
+
+## Implementation Status
+
+### Phase 1: Project Skeleton
+
+- Added a FastAPI application under `backend/` with `GET /health`.
+- Added environment-based backend configuration and local CORS access for the
+  Next.js origin.
+- Added a Python health endpoint micro-test using FastAPI's test client.
+- Added a Next.js App Router application under `frontend/` using TypeScript and
+  Tailwind CSS.
+- The initial page performs a browser-side health request using
+  `NEXT_PUBLIC_API_URL`, defaulting to `http://localhost:8000`, and renders the
+  connection state explicitly.
+- Local setup, run, test, lint, and build commands are documented in `README.md`.
+- Production builds use Next.js Webpack mode for deterministic compatibility
+  with restricted CI environments; local development continues to use the
+  default fast development bundler.
+- MongoDB, RBAC, clinical services, provenance, and LLM integration remain out
+  of scope for Phase 1 and are not yet implemented.
+
+### Phase 2: Core Models and Synthetic Record
+
+- Added Pydantic domain models for `Patient`, `TimelineEntry`, `Highlight`,
+  `ProvenancePointer`, `Comment`, `Task`, `Version`, `AuditLog`,
+  `InteractionEvent`, and `Conflict`.
+- Added a repository protocol and an in-process `MemoryRepository`. It returns
+  defensive copies so API consumers cannot mutate repository state by reference.
+- Added a deterministic synthetic record for `patient-syn-001`, including
+  clinician, staff, patient, and AI-scribed timeline entries across multiple
+  dates.
+- Added `GET /api/patients/{patient_id}/record` as the Phase 2 aggregate read
+  endpoint. It returns precomputed highlights and tasks with the complete linked
+  record needed by the patient page.
+- Local CORS accepts both `localhost:3000` and `127.0.0.1:3000`, in addition to
+  the configured frontend origin, so browser-based development works with either
+  standard loopback hostname.
+- Every seeded highlight has an exact `ProvenancePointer` with entry ID, source
+  quote, and character offsets. Automated tests assert that every pointer resolves
+  back to the exact timeline span.
+- The frontend now renders a 10-second glance card, open actions, conflict state,
+  comments, and the longitudinal timeline. Selecting a highlight scrolls to and
+  marks its precise source span.
+- Phase 2 intentionally does not implement persistence, mutation endpoints,
+  server-side RBAC enforcement, or real AI ingest. Those remain subsequent-phase
+  work and the current seed resets whenever the FastAPI process restarts.
+
+### Phase 3: RBAC and Role Preview
+
+- Added explicit `patient`, `staff`, `clinician`, and `admin` user roles, kept
+  separate from the `system` content-author role.
+- Added a server-side action matrix matching the documented read, write,
+  highlight, audit, comment, and rollback permissions.
+- Every patient read and mutation now requires an actor ID, role, and clinic ID;
+  all four roles, including admin, are rejected outside their clinic scope.
+- Patient-record responses are filtered server-side. Hidden entries also remove
+  dependent highlights, tasks, comments, versions, audit events, interactions,
+  and conflicts so provenance cannot leak restricted note content.
+- Patients receive only patient-authored summaries and clinician-approved
+  patient instructions; raw AI notes, internal comments, audit records, and
+  unreviewed highlights are excluded.
+- Added server-authorized create and edit endpoints for staff notes and clinician
+  sections. Staff can edit only their own staff notes; clinicians cannot overwrite
+  staff notes; staff cannot create or edit clinician sections; scoped admins can
+  manage either.
+- The frontend role switcher is explicitly a demo preview. It sends mock auth
+  headers, but the backend independently enforces every permission. Production
+  must replace these headers with verified session or signed-token claims.
+- Added `tests/test_rbac_scope.py` covering patient data filtering, staff read
+  filtering, forbidden cross-role writes, staff ownership, required auth context,
+  and clinic isolation for all four roles.

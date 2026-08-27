@@ -1,0 +1,37 @@
+name: Restrict merge to main
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - closed
+
+jobs:
+  check-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check source branch
+        run: |
+          echo "Action: ${{ github.event.action }}"
+          echo "Base branch: ${{ github.base_ref }}"
+          echo "Head branch: ${{ github.head_ref }}"
+
+          if [ "${{ github.base_ref }}" != "main" ]; then
+            echo "This PR does not target main. No branch restriction needed."
+            exit 0
+          fi
+
+          if [ "${{ github.event.action }}" = "closed" ]; then
+            echo "PR is closed. Clearing stale branch restriction check."
+            exit 0
+          fi
+
+          if [ "${{ github.head_ref }}" != "development" ]; then
+            echo "Only the development branch can be merged into main."
+            exit 1
+          fi
+
+          echo "Valid merge path: development -> main."
