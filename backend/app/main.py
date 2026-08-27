@@ -1,16 +1,29 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app.dependencies import close_repository, initialize_repository
 from app.routes.patients import router as patients_router
 
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    initialize_repository()
+    try:
+        yield
+    finally:
+        close_repository()
 
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
     description="Clinical change radar API.",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

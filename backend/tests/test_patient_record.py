@@ -1,7 +1,10 @@
+import pytest
 from fastapi.testclient import TestClient
 
+from app.dependencies import get_repository
 from app.main import app
-from app.seed import PATIENT_ID
+from app.repositories import MemoryRepository
+from app.seed import PATIENT_ID, build_seed_record
 
 
 client = TestClient(app)
@@ -10,6 +13,14 @@ AUTH_HEADERS = {
     "X-Actor-Role": "clinician",
     "X-Clinic-Id": "clinic-syn-orchard",
 }
+
+
+@pytest.fixture(autouse=True)
+def isolated_repository():
+    repository = MemoryRepository([build_seed_record()])
+    app.dependency_overrides[get_repository] = lambda: repository
+    yield
+    app.dependency_overrides.clear()
 
 
 def test_complete_seed_patient_record_is_returned() -> None:

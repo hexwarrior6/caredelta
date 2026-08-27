@@ -540,3 +540,20 @@ README and technical brief stay consistent with the actual implementation.
   and visibility of the referenced timeline entry.
 - The demo UI supports the complete staff-to-clinician handoff: publish a staff
   note, mention and assign a clinician, switch roles, then resolve or reopen it.
+
+### MongoDB Atlas Persistence
+
+- Application runtimes now require `MONGODB_URI` and use `MongoRepository`;
+  automated backend tests continue to override it with an isolated
+  `MemoryRepository` and do not require network access or secrets.
+- `MONGODB_DATABASE` separates `caredelta_development` from
+  `caredelta_production` while keeping the connection URI independent of the
+  environment-specific database name.
+- Backend startup pings Atlas, creates unique patient and query indexes, and
+  inserts the synthetic patient through `$setOnInsert`, making initialization
+  safe across repeated deployments.
+- Timeline creation, comments, assignment status, and resolve/unresolve persist
+  in the patient aggregate document. Timeline edits use an atomic entry ID plus
+  `expected_version` match and write revision/audit data in the same update.
+- A live development-Atlas check confirmed one idempotent seed document, five
+  timeline entries, successful model hydration, and all configured indexes.

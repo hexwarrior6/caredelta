@@ -1,5 +1,7 @@
 from copy import deepcopy
-from typing import Protocol
+from typing import Any, Protocol
+
+from pymongo.collection import Collection
 
 from app.models import AuditLog, Comment, PatientRecord, TimelineEntry, Version
 
@@ -89,3 +91,114 @@ class MemoryRepository:
             record.audit_logs.append(deepcopy(audit_log))
             return deepcopy(updated)
         return None
+
+
+class MongoRepository:
+    """MongoDB-backed patient aggregate repository used by application runtimes."""
+
+    def __init__(self, collection: Collection[dict[str, Any]]) -> None:
+        self._collection = collection
+
+    def initialize(self, seed_record: PatientRecord) -> None:
+        self._collection.database.client.admin.command("ping")
+        self._collection.create_index("patient.id", unique=True)
+        self._collection.create_index("patient.clinic_id")
+        self._collection.create_index("timeline_entries.id")
+        self._collection.create_index("comments.id")
+        self._collection.update_one(
+            {"patient.id": seed_record.patient.id},
+            {"$setOnInsert": seed_record.model_dump(mode="python")},
+            upsert=True,
+        )
+
+    def get_patient_record(self, patient_id: str) -> PatientRecord | None:
+        document = self._collection.find_one(
+            {"patient.id": patient_id}, projection={"_id": False}
+        )
+        return PatientRecord.model_validate(document) if document else None
+
+    def add_timeline_entry(self, entry: TimelineEntry) -> TimelineEntry:
+        result = self._collection.update_one(
+            {"patient.id": entry.patient_id},
+            {
+                "$push": {
+                    "timeline_entries": {
+                        "$each": [entry.model_dump(mode="python")],
+                        "$position": 0,
+                    }
+                }
+            },
+        )
+        if result.matched_count == 0:
+            raise KeyError(entry.patient_id)
+        return entry.model_copy(deep=True)
+
+    def add_comment(self, comment: Comment) -> Comment:
+        result = self._collection.update_one(
+            {"patient.id": comment.patient_id},
+            {"$push": {"comments": comment.model_dump(mode="python")}},
+        )
+        if result.matched_count == 0:
+            raise KeyError(comment.patient_id)
+        return comment.model_copy(deep=True)
+
+    def update_comment_status(
+        self, patient_id: str, comment_id: str, resolved: bool
+    ) -> Comment | None:
+        result = self._collection.update_one(
+            {"patient.id": patient_id, "comments.id": comment_id},
+            {"$set": {"comments.$.resolved": resolved}},
+        )
+        if result.matched_count == 0:
+            return None
+        record = self.get_patient_record(patient_id)
+        return (
+            next(
+                (comment for comment in record.comments if comment.id == comment_id),
+                None,
+            )
+            if record
+            else None
+        )
+
+    def update_timeline_entry(
+        self,
+        patient_id: str,
+        entry_id: str,
+        content: str,
+        expected_version: int,
+        version: Version,
+        audit_log: AuditLog,
+    ) -> TimelineEntry | None:
+        result = self._collection.update_one(
+            {
+                "patient.id": patient_id,
+                "timeline_entries": {
+                    "$elemMatch": {"id": entry_id, "version": expected_version}
+                },
+            },
+            {
+                "$set": {"timeline_entries.$.content": content},
+                "$inc": {"timeline_entries.$.version": 1},
+                "$push": {
+                    "versions": version.model_dump(mode="python"),
+                    "audit_logs": audit_log.model_dump(mode="python"),
+                },
+            },
+        )
+        if result.matched_count == 0:
+            current = self.get_patient_record(patient_id)
+            if current is None:
+                return None
+            if any(entry.id == entry_id for entry in current.timeline_entries):
+                raise VersionConflictError
+            return None
+        record = self.get_patient_record(patient_id)
+        return (
+            next(
+                (entry for entry in record.timeline_entries if entry.id == entry_id),
+                None,
+            )
+            if record
+            else None
+        )

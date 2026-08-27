@@ -40,10 +40,10 @@ in control of what becomes trusted clinical memory.
   admin access
 - Deterministic synthetic data for safe local development and demonstration
 
-The application currently uses an in-process `MemoryRepository`. Restarting the
-backend restores the synthetic record. MongoDB persistence, production RBAC,
-and live AI ingest are designed as backend responsibilities and can be added
-without changing the patient-record interface.
+Application runtimes persist patient records in MongoDB Atlas through
+`MongoRepository`. Local development and Railway use separate database names,
+while automated tests override the repository with an isolated
+`MemoryRepository` so CI remains deterministic and requires no external secret.
 
 ## Architecture
 
@@ -52,7 +52,8 @@ Browser
   -> Next.js App Router + TypeScript + Tailwind CSS
   -> FastAPI clinical API
   -> Repository interface
-  -> MemoryRepository (local) / MongoDB Atlas (deployment target)
+  -> MongoRepository -> MongoDB Atlas (application runtime)
+  -> MemoryRepository (automated tests only)
 ```
 
 The frontend renders the care record, while the Python backend owns clinical
@@ -80,6 +81,12 @@ ignored local reference for production values and can be loaded locally with
 `CAREDELTA_ENV_FILE=.env.production`; Railway itself must receive the same values
 through its Variables settings. Replace all credential placeholders and never
 commit either real environment file.
+
+Set `MONGODB_DATABASE=caredelta_development` locally and in Railway development.
+Use `MONGODB_DATABASE=caredelta_production` in Railway production so synthetic
+development activity cannot modify production records. On startup, the backend
+checks Atlas connectivity, creates indexes, and inserts the synthetic seed only
+when that patient does not already exist.
 
 ### Start the backend
 
@@ -193,6 +200,7 @@ Create a Railway service from this GitHub repository with:
 Set these Railway variables without committing their values:
 
 - `MONGODB_URI`
+- `MONGODB_DATABASE` — `caredelta_development` or `caredelta_production`
 - `DEEPSEEK_BASE_URL`
 - `DEEPSEEK_MODEL`
 - `DEEPSEEK_API_KEY`
