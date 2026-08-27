@@ -13,6 +13,21 @@ class Settings(BaseSettings):
     mongodb_database: str = Field(
         default="caredelta_development", validation_alias="MONGODB_DATABASE"
     )
+    deepseek_base_url: str = Field(
+        default="https://api.deepseek.com", validation_alias="DEEPSEEK_BASE_URL"
+    )
+    deepseek_model: str = Field(
+        default="deepseek-v4-flash", validation_alias="DEEPSEEK_MODEL"
+    )
+    deepseek_api_key: str | None = Field(
+        default=None, validation_alias="DEEPSEEK_API_KEY"
+    )
+    deepseek_timeout_seconds: float = Field(
+        default=30.0, validation_alias="DEEPSEEK_TIMEOUT_SECONDS", gt=0, le=60
+    )
+    deepseek_max_tokens: int = Field(
+        default=1_200, validation_alias="DEEPSEEK_MAX_TOKENS", ge=200, le=8_000
+    )
 
     model_config = SettingsConfigDict(
         env_file=os.getenv("CAREDELTA_ENV_FILE", ".env.local"),

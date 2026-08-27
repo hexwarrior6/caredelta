@@ -1,5 +1,9 @@
 export type RiskLevel = "low" | "medium" | "high";
 export type UserRole = "patient" | "staff" | "clinician" | "admin";
+export type AIInteractionType =
+  | "ai_doctor_consult_summary"
+  | "ai_nurse_consult_summary"
+  | "ai_patient_session_summary";
 export type ProvenanceConfidence = "high" | "medium" | "low";
 export type SignalCategory =
   | "new"
@@ -110,4 +114,24 @@ export type PatientRecord = {
   interaction_events: unknown[];
   conflicts: Conflict[];
   generated_at: string;
+};
+
+export type AIRedactionPreview = {
+  redacted_text: string;
+  redacted_phi_types: string[];
+  warning: string | null;
+};
+
+export type AIIngestResult = {
+  entry: TimelineEntry;
+  highlights: Highlight[];
+  extraction_method: "deepseek" | "fallback";
+  fallback_reason:
+    | "llm_unavailable"
+    | "invalid_json"
+    | "timeout"
+    | "provenance_unresolved"
+    | null;
+  summary: string;
+  redacted_phi_types: string[];
 };

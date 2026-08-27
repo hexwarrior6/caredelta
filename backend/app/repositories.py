@@ -3,7 +3,7 @@ from typing import Any, Protocol
 
 from pymongo.collection import Collection
 
-from app.models import AuditLog, Comment, PatientRecord, TimelineEntry, Version
+from app.models import AuditLog, Comment, Highlight, PatientRecord, TimelineEntry, Version
 
 
 class VersionConflictError(Exception):
@@ -33,6 +33,14 @@ class PatientRecordRepository(Protocol):
         audit_log: AuditLog,
     ) -> TimelineEntry | None: ...
 
+    def add_ai_ingest(
+        self,
+        entry: TimelineEntry,
+        highlights: list[Highlight],
+        version: Version,
+        audit_log: AuditLog,
+    ) -> None: ...
+
 
 class MemoryRepository:
     """In-process repository used by the local demo and test suite."""
@@ -57,6 +65,19 @@ class MemoryRepository:
         record = self._records[comment.patient_id]
         record.comments.append(deepcopy(comment))
         return deepcopy(comment)
+
+    def add_ai_ingest(
+        self,
+        entry: TimelineEntry,
+        highlights: list[Highlight],
+        version: Version,
+        audit_log: AuditLog,
+    ) -> None:
+        record = self._records[entry.patient_id]
+        record.timeline_entries.insert(0, deepcopy(entry))
+        record.highlights = deepcopy(highlights) + record.highlights
+        record.versions.append(deepcopy(version))
+        record.audit_logs.append(deepcopy(audit_log))
 
     def update_comment_status(
         self, patient_id: str, comment_id: str, resolved: bool
@@ -189,6 +210,33 @@ class MongoRepository:
         if result.matched_count == 0:
             raise KeyError(comment.patient_id)
         return comment.model_copy(deep=True)
+
+    def add_ai_ingest(
+        self,
+        entry: TimelineEntry,
+        highlights: list[Highlight],
+        version: Version,
+        audit_log: AuditLog,
+    ) -> None:
+        result = self._collection.update_one(
+            {"patient.id": entry.patient_id},
+            {
+                "$push": {
+                    "timeline_entries": {
+                        "$each": [entry.model_dump(mode="python")],
+                        "$position": 0,
+                    },
+                    "highlights": {
+                        "$each": [item.model_dump(mode="python") for item in highlights],
+                        "$position": 0,
+                    },
+                    "versions": version.model_dump(mode="python"),
+                    "audit_logs": audit_log.model_dump(mode="python"),
+                }
+            },
+        )
+        if result.matched_count == 0:
+            raise KeyError(entry.patient_id)
 
     def update_comment_status(
         self, patient_id: str, comment_id: str, resolved: bool

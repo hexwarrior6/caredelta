@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  AIIngestResult,
+  AIInteractionType,
+  AIRedactionPreview,
   Comment,
   Highlight,
   PatientRecord as PatientRecordData,
@@ -44,6 +47,27 @@ const riskStyles: Record<RiskLevel, string> = {
   medium: "border-amber-200 bg-amber-50 text-amber-700",
   low: "border-sky-200 bg-sky-50 text-sky-700",
 };
+
+const interactionLabels: Record<AIInteractionType, string> = {
+  ai_doctor_consult_summary: "Doctor consultation",
+  ai_nurse_consult_summary: "Nurse consultation",
+  ai_patient_session_summary: "Patient session",
+};
+
+const fallbackLabels: Record<NonNullable<AIIngestResult["fallback_reason"]>, string> = {
+  llm_unavailable: "LLM unavailable",
+  invalid_json: "LLM returned invalid JSON",
+  timeout: "LLM request timed out",
+  provenance_unresolved: "LLM provenance could not be resolved",
+};
+
+const syntheticIngestExample = `Patient name: Elaine Tan. Phone: +65 9123 4567. Patient ID: S1234567D. Email: elaine.tan@example.com.
+
+The patient reports waking with wheeze on three nights during the past week. Reliever inhaler was used every day, compared with once or twice weekly last month. She is comfortable at rest and reports no severe breathlessness.
+
+Spirometry has not yet been booked. The patient is waiting for the clinic to confirm an appointment and would prefer Tuesday afternoon.
+
+The patient says she previously tolerated amoxicillin, but the existing record lists a penicillin allergy with an unclear reaction. This discrepancy requires clinician review before the allergy record is changed.`;
 
 function formatDate(value: string, includeTime = false) {
   return new Intl.DateTimeFormat("en-SG", {
@@ -109,6 +133,13 @@ export function PatientRecord() {
   const [editEntryId, setEditEntryId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [historyEntryId, setHistoryEntryId] = useState<string | null>(null);
+  const [showAIIngest, setShowAIIngest] = useState(false);
+  const [interactionType, setInteractionType] = useState<AIInteractionType>("ai_doctor_consult_summary");
+  const [ingestTitle, setIngestTitle] = useState("AI-scribed consultation");
+  const [sourceId, setSourceId] = useState("session-demo-001");
+  const [transcript, setTranscript] = useState(syntheticIngestExample);
+  const [redactionPreview, setRedactionPreview] = useState<AIRedactionPreview | null>(null);
+  const [ingestResult, setIngestResult] = useState<AIIngestResult | null>(null);
 
   const authHeaders = useCallback(
     () => ({
@@ -185,6 +216,64 @@ export function PatientRecord() {
     } catch (caught) {
       setMutationError(caught instanceof Error ? caught.message : "Unable to save change");
       throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function postJson<T>(path: string, body: object): Promise<T> {
+    const response = await fetch(`${apiUrl}${path}`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+      throw new Error(payload?.detail ?? `API returned HTTP ${response.status}`);
+    }
+    return (await response.json()) as T;
+  }
+
+  async function previewRedaction() {
+    setBusy(true);
+    setMutationError(null);
+    setIngestResult(null);
+    try {
+      const preview = await postJson<AIRedactionPreview>(
+        `/api/patients/${patientId}/ai-ingest/preview`,
+        { transcript },
+      );
+      setRedactionPreview(preview);
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to preview redaction");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runAIIngest(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!redactionPreview) return;
+    setBusy(true);
+    setMutationError(null);
+    try {
+      const result = await postJson<AIIngestResult>(
+        `/api/patients/${patientId}/ai-ingest`,
+        {
+          interaction_type: interactionType,
+          title: ingestTitle,
+          source_id: sourceId,
+          transcript,
+        },
+      );
+      setIngestResult(result);
+      await loadRecord();
+      if (result.highlights[0]) setFocusedHighlight(result.highlights[0]);
+      window.setTimeout(() => {
+        document.getElementById(result.entry.id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 100);
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to run AI ingest");
     } finally {
       setBusy(false);
     }
@@ -422,6 +511,15 @@ export function PatientRecord() {
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-slate-500">{record.timeline_entries.length} entries</span>
+                {(role === "clinician" || role === "admin") && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAIIngest((current) => !current)}
+                    className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100"
+                  >
+                    {showAIIngest ? "Close AI ingest" : "Ingest AI note"}
+                  </button>
+                )}
                 {role !== "patient" && (
                   <button
                     type="button"
@@ -438,6 +536,117 @@ export function PatientRecord() {
               <p role="alert" className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
                 {mutationError}
               </p>
+            )}
+
+            {showAIIngest && (role === "clinician" || role === "admin") && (
+              <form onSubmit={runAIIngest} className="mt-5 overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm">
+                <div className="border-b border-violet-100 bg-violet-50/70 px-5 py-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">Secure AI ingest</p>
+                  <h3 className="mt-1 text-lg font-semibold text-slate-950">Redact first, then extract source-backed signals</h3>
+                  <p className="mt-1 text-sm text-slate-600">The backend re-runs redaction during ingest. Raw text is never passed directly to the LLM.</p>
+                </div>
+                <div className="grid gap-5 p-5 lg:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="interaction-type">Interaction type</label>
+                    <select
+                      id="interaction-type"
+                      value={interactionType}
+                      onChange={(event) => setInteractionType(event.target.value as AIInteractionType)}
+                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-violet-500"
+                    >
+                      {Object.entries(interactionLabels).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                    <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="ingest-title">Timeline title</label>
+                    <input
+                      id="ingest-title"
+                      required
+                      maxLength={160}
+                      value={ingestTitle}
+                      onChange={(event) => setIngestTitle(event.target.value)}
+                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-500"
+                    />
+                    <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="source-id">Source/session ID</label>
+                    <input
+                      id="source-id"
+                      required
+                      maxLength={160}
+                      value={sourceId}
+                      onChange={(event) => setSourceId(event.target.value)}
+                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm outline-none focus:border-violet-500"
+                    />
+                    <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="ai-transcript">Synthetic transcript or note</label>
+                    <textarea
+                      id="ai-transcript"
+                      required
+                      value={transcript}
+                      onChange={(event) => {
+                        setTranscript(event.target.value);
+                        setRedactionPreview(null);
+                        setIngestResult(null);
+                      }}
+                      rows={10}
+                      placeholder="Paste a synthetic consultation transcript. Include a demo name, phone, ID, or email to verify redaction."
+                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm leading-6 outline-none focus:border-violet-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={busy || transcript.trim().length === 0}
+                      onClick={() => void previewRedaction()}
+                      className="mt-3 rounded-xl border border-violet-300 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-50"
+                    >
+                      {busy ? "Checking…" : "Preview redaction"}
+                    </button>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Text sent to LLM</p>
+                      {redactionPreview && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {redactionPreview.redacted_phi_types.map((type) => (
+                            <span key={type} className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-700">{type} redacted</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {redactionPreview ? (
+                      <>
+                        <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-4 text-xs leading-6 text-slate-100">{redactionPreview.redacted_text}</pre>
+                        {redactionPreview.warning && (
+                          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">Redaction warning: {redactionPreview.warning}</p>
+                        )}
+                        <button
+                          disabled={busy}
+                          className="mt-4 w-full rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-600 disabled:opacity-50"
+                        >
+                          {busy ? "Running ingest…" : "Run ingest"}
+                        </button>
+                      </>
+                    ) : (
+                      <div className="mt-3 grid min-h-72 place-items-center rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm leading-6 text-slate-500">
+                        Preview redaction before enabling AI ingest.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {ingestResult && (
+                  <div className={`border-t px-5 py-4 ${ingestResult.extraction_method === "deepseek" ? "border-emerald-100 bg-emerald-50" : "border-amber-100 bg-amber-50"}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">Ingest complete · {ingestResult.highlights.length} highlight(s)</p>
+                        <p className="mt-1 text-sm text-slate-600">{ingestResult.summary}</p>
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${ingestResult.extraction_method === "deepseek" ? "bg-emerald-200 text-emerald-900" : "bg-amber-200 text-amber-900"}`}>
+                        {ingestResult.extraction_method === "deepseek" ? "DeepSeek LLM" : `Deterministic fallback · ${ingestResult.fallback_reason ? fallbackLabels[ingestResult.fallback_reason] : "unknown reason"}`}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">The new system entry and source-backed highlights are now visible below and in the glance card.</p>
+                  </div>
+                )}
+              </form>
             )}
 
             {showNoteComposer && role !== "patient" && (

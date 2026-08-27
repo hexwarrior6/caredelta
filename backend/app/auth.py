@@ -24,6 +24,7 @@ class Action(StrEnum):
     PIN_HIGHLIGHT = "pin_highlight"
     ROLLBACK_ENTRY = "rollback_entry"
     READ_AUDIT_LOG = "read_audit_log"
+    INGEST_AI_NOTE = "ingest_ai_note"
 
 
 ACTION_MATRIX: dict[Action, frozenset[UserRole]] = {
@@ -62,6 +63,7 @@ ACTION_MATRIX: dict[Action, frozenset[UserRole]] = {
         {UserRole.STAFF, UserRole.CLINICIAN, UserRole.ADMIN}
     ),
     Action.READ_AUDIT_LOG: frozenset({UserRole.CLINICIAN, UserRole.ADMIN}),
+    Action.INGEST_AI_NOTE: frozenset({UserRole.CLINICIAN, UserRole.ADMIN}),
 }
 
 

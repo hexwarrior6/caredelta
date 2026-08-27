@@ -10,17 +10,25 @@ from app.auth import (
     require_action,
     require_clinic_scope,
 )
-from app.dependencies import get_repository
+from app.dependencies import get_llm_adapter, get_repository
 from app.models import (
     AuditLog,
+    AIIngestRequest,
+    AIIngestResponse,
+    AIRedactionPreviewRequest,
+    AIRedactionPreviewResponse,
     AuthContext,
     AuthorRole,
     Comment,
     CreateCommentRequest,
     CreateEntryRequest,
     PatientRecord,
+    Highlight,
+    ProvenanceConfidence,
+    ProvenancePointer,
     RevertEntryRequest,
     TimelineEntry,
+    TrustStatus,
     UpdateEntryRequest,
     UpdateCommentStatusRequest,
     UserRole,
@@ -29,8 +37,133 @@ from app.models import (
 )
 from app.repositories import PatientRecordRepository, VersionConflictError
 from app.services.patient_records import entry_action, filter_patient_record
+from app.services.ai_ingest import LLMAdapter, extract_with_fallback, redact_phi
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
+
+
+@router.post(
+    "/{patient_id}/ai-ingest/preview",
+    response_model=AIRedactionPreviewResponse,
+)
+def preview_ai_ingest_redaction(
+    patient_id: str,
+    payload: AIRedactionPreviewRequest,
+    repository: Annotated[PatientRecordRepository, Depends(get_repository)],
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+) -> AIRedactionPreviewResponse:
+    record = repository.get_patient_record(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+    require_clinic_scope(context, record.patient.clinic_id)
+    require_action(context, Action.INGEST_AI_NOTE)
+    redaction = redact_phi(payload.transcript, record.patient.display_name)
+    return AIRedactionPreviewResponse(
+        redacted_text=redaction.text,
+        redacted_phi_types=redaction.redacted_phi_types,
+        warning=(
+            None
+            if redaction.redacted_phi_types
+            else "No supported PHI pattern was detected; review the preview before ingest."
+        ),
+    )
+
+
+@router.post(
+    "/{patient_id}/ai-ingest",
+    response_model=AIIngestResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def ingest_ai_scribed_note(
+    patient_id: str,
+    payload: AIIngestRequest,
+    repository: Annotated[PatientRecordRepository, Depends(get_repository)],
+    adapter: Annotated[LLMAdapter | None, Depends(get_llm_adapter)],
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+) -> AIIngestResponse:
+    record = repository.get_patient_record(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+    require_clinic_scope(context, record.patient.clinic_id)
+    require_action(context, Action.INGEST_AI_NOTE)
+
+    redaction = redact_phi(payload.transcript, record.patient.display_name)
+    extraction, method, fallback_reason = extract_with_fallback(adapter, redaction.text)
+    now = datetime.now(timezone.utc)
+    entry = TimelineEntry(
+        id=f"entry-{uuid4()}",
+        patient_id=patient_id,
+        clinic_id=record.patient.clinic_id,
+        author_role=AuthorRole.SYSTEM,
+        author_id="system-ai-scribe",
+        author_name="AI Scribe",
+        timestamp=now,
+        entry_type=payload.interaction_type,
+        title=payload.title,
+        content=redaction.text,
+        visibility_scope=VisibilityScope.CLINICIAN,
+        version=1,
+        source_label=f"{payload.interaction_type} · {payload.source_id}",
+    )
+    highlights: list[Highlight] = []
+    for signal in extraction.signals:
+        start = entry.content.index(signal.source_snippet)
+        highlights.append(
+            Highlight(
+                id=f"highlight-{uuid4()}",
+                patient_id=patient_id,
+                text=signal.text,
+                category=signal.category,
+                risk_level=signal.risk_level,
+                risk_reason=signal.risk_reason,
+                trust_status=TrustStatus.AI_SUGGESTED,
+                importance_score=signal.importance_score,
+                provenance_pointer=ProvenancePointer(
+                    id=f"provenance-{uuid4()}",
+                    patient_id=patient_id,
+                    entry_id=entry.id,
+                    source_type=payload.interaction_type,
+                    source_id=payload.source_id,
+                    source_quote=signal.source_snippet,
+                    start_offset=start,
+                    end_offset=start + len(signal.source_snippet),
+                    offset_confidence=ProvenanceConfidence.HIGH,
+                ),
+                created_at=now,
+            )
+        )
+    version = Version(
+        id=f"version-{uuid4()}",
+        patient_id=patient_id,
+        entry_id=entry.id,
+        version_number=1,
+        content_snapshot=entry.content,
+        changed_by="system-ai-scribe",
+        changed_by_role=AuthorRole.SYSTEM,
+        created_at=now,
+        change_summary="AI-scribed note ingested after PHI redaction",
+    )
+    audit_log = AuditLog(
+        id=f"audit-{uuid4()}",
+        patient_id=patient_id,
+        actor_id=context.actor_id,
+        actor_role=AuthorRole(context.role.value),
+        action="ai_ingest",
+        entity_type="timeline_entry",
+        entity_id=entry.id,
+        changed_fields=["entry", "highlights", "redaction_metadata"],
+        created_at=now,
+        request_id=f"request-{uuid4()}",
+    )
+    repository.add_ai_ingest(entry, highlights, version, audit_log)
+    return AIIngestResponse(
+        entry=entry,
+        highlights=highlights,
+        extraction_method=method,
+        fallback_reason=fallback_reason,
+        summary=extraction.summary,
+        redacted_phi_types=redaction.redacted_phi_types,
+    )
 
 
 def require_entry_edit(context: AuthContext, entry: TimelineEntry) -> None:

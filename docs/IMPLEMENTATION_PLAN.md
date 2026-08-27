@@ -586,3 +586,43 @@ README and technical brief stay consistent with the actual implementation.
 - The glance card displays provenance confidence. Clicking a highlight scrolls
   to the source timeline entry, marks the supporting text span, and displays the
   confidence beside the source label.
+
+### Phase 7: AI Ingest and PHI Redaction
+
+- Added a clinician/admin-only AI ingest endpoint with the same clinic-scope and
+  server-side action enforcement as the rest of the patient record.
+- Added a protected redaction-preview endpoint. The frontend displays the exact
+  sanitized payload and detected PHI categories before enabling ingest, while
+  the ingest endpoint independently repeats redaction and never trusts the
+  preview result.
+- The backend redacts the known patient name, email, phone, and common patient
+  or medical ID formats before invoking any LLM adapter. The sanitized text is
+  also the stored AI-scribed source so provenance offsets cannot point into PHI.
+- Added an OpenAI-compatible DeepSeek adapter configured by base URL, model, API
+  key, and timeout. The adapter requests JSON-only output and validates it using
+  a strict Pydantic contract with unknown fields rejected.
+- DeepSeek extraction explicitly disables the model's default high-effort
+  thinking mode, caps output at 1,200 tokens, and uses a 30-second timeout. This
+  keeps structured extraction responsive while retaining deterministic fallback
+  for genuine service failures. A live synthetic, non-persistent probe returned
+  through the `deepseek` path with two validated source-grounded signals.
+- Model signals without an exact `source_snippet` in the sanitized transcript
+  are rejected. Network, timeout, response-shape, JSON, and grounding failures
+  converge on a deterministic keyword-based extractor that emits up to five
+  reviewable, source-grounded signals.
+- Successful and fallback ingestion atomically append a clinician-visible
+  interaction-specific system entry, full version snapshot, metadata-only audit
+  event, and one or more `ai_suggested` highlights with exact provenance
+  pointers. Supported entry types are doctor consult, nurse consult, and patient
+  session summaries.
+- Added the complete clinician/admin ingest panel: interaction selection,
+  transcript and source inputs, redaction warning/preview, Run ingest action,
+  extraction summary, DeepSeek/fallback indicator, and explicit timeout,
+  invalid-JSON, unavailable-LLM, and unresolved-provenance states. Successful
+  ingest refreshes timeline and glance data and focuses the new source entry.
+- `tests/test_ai_ingest.py` uses mock adapters and `MemoryRepository` to prove
+  that name, phone, ID, and email values never reach the adapter; invalid JSON,
+  timeouts, and ungrounded provenance trigger fallback; every generated signal
+  resolves to a stored system entry span; and raw transcript content is absent
+  from audit metadata. The integration test covers preview, ingest, aggregate
+  reload, system entry visibility, and highlight-to-source resolution.

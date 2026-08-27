@@ -224,3 +224,38 @@ class CreateCommentRequest(BaseModel):
 
 class UpdateCommentStatusRequest(BaseModel):
     resolved: bool
+
+
+AIInteractionType = Literal[
+    "ai_doctor_consult_summary",
+    "ai_nurse_consult_summary",
+    "ai_patient_session_summary",
+]
+
+
+class AIRedactionPreviewRequest(BaseModel):
+    transcript: str = Field(min_length=1, max_length=50_000)
+
+
+class AIRedactionPreviewResponse(BaseModel):
+    redacted_text: str
+    redacted_phi_types: list[str]
+    warning: str | None = None
+
+
+class AIIngestRequest(BaseModel):
+    transcript: str = Field(min_length=1, max_length=50_000)
+    title: str = Field(default="AI-scribed consultation", min_length=1, max_length=160)
+    source_id: str = Field(min_length=1, max_length=160)
+    interaction_type: AIInteractionType
+
+
+class AIIngestResponse(BaseModel):
+    entry: TimelineEntry
+    highlights: list[Highlight]
+    extraction_method: Literal["deepseek", "fallback"]
+    fallback_reason: Literal[
+        "llm_unavailable", "invalid_json", "timeout", "provenance_unresolved"
+    ] | None = None
+    summary: str
+    redacted_phi_types: list[str]

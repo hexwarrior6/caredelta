@@ -37,6 +37,8 @@ in control of what becomes trusted clinical memory.
 - Optimistic-concurrency editing and revert-as-a-new-version recovery
 - Exact provenance pointers from highlights to their source text, including
   high/medium/low confidence
+- PHI-redacted DeepSeek ingestion with strict JSON validation and a deterministic
+  rule-based fallback
 - Open care-team tasks, comments, revision snapshots, and audit metadata
 - Explicit conflict records for information that requires reconciliation
 - Server-enforced role and clinic boundaries for patient, staff, clinician, and
@@ -60,7 +62,7 @@ Browser
 ```
 
 The frontend renders the care record, while the Python backend owns clinical
-logic, access control, provenance, audit behavior, and future AI ingestion.
+logic, access control, provenance, audit behavior, and AI ingestion.
 
 ## Local development
 
@@ -156,6 +158,31 @@ a complete snapshot with an incremented version. Reverting restores a selected
 snapshot by creating another version, so historical states are never deleted or
 rewritten. Audit logs retain metadata only and never store raw note bodies.
 
+### AI-scribed note ingestion
+
+Clinician and admin roles can submit a transcript to
+`POST /api/patients/{patient_id}/ai-ingest`. Before any model call, the backend
+replaces the known patient name, email addresses, phone numbers, and common
+patient/medical ID formats. Only this sanitized transcript is sent to the
+OpenAI-compatible DeepSeek endpoint.
+
+The clinician/admin timeline includes an **Ingest AI note** panel for doctor
+consultations, nurse consultations, and patient sessions. A separate redaction
+preview request shows the exact sanitized text and detected PHI types before the
+Run ingest action is enabled. The backend repeats redaction during the actual
+ingest so the security boundary never depends on browser state.
+
+DeepSeek must return the server-defined JSON contract and every proposed signal
+must quote an exact substring of the sanitized transcript. Malformed JSON,
+timeouts, network failures, or source-less signals automatically use the local
+deterministic rule extractor. Both paths create a clinician-visible system
+timeline entry and source-backed, `ai_suggested` highlights. The result panel
+shows whether DeepSeek or fallback produced the result, including timeout,
+invalid JSON, unavailable LLM, or unresolved provenance reasons. Timeline and
+glance data refresh immediately, and generated highlights retain the existing
+click-to-source behavior. No API key is required by automated tests; they inject
+mock adapters and isolated memory data.
+
 ## Access control
 
 The backend enforces an action matrix for `patient`, `staff`, `clinician`, and
@@ -218,6 +245,8 @@ Set these Railway variables without committing their values:
 - `DEEPSEEK_BASE_URL`
 - `DEEPSEEK_MODEL`
 - `DEEPSEEK_API_KEY`
+- `DEEPSEEK_TIMEOUT_SECONDS` — optional; defaults to `30`
+- `DEEPSEEK_MAX_TOKENS` — optional; defaults to `1200`
 - `CAREDELTA_FRONTEND_ORIGIN` — the production Vercel URL
 - `CAREDELTA_FRONTEND_ORIGIN_REGEX` — optional, tightly scoped preview URL regex
 
