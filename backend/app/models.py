@@ -110,7 +110,7 @@ class Highlight(BaseModel):
     trust_status: TrustStatus
     importance_score: int = Field(ge=0, le=100)
     base_importance_score: int | None = Field(default=None, ge=0, le=100)
-    learning_boost: int = Field(default=0, ge=0, le=12)
+    learning_adjustment: int = Field(default=0, ge=-8, le=12)
     learning_reason: str | None = None
     decay_adjustment: int = Field(default=0, ge=-15, le=0)
     decay_reason: str | None = None
@@ -258,7 +258,7 @@ class UpdateCommentStatusRequest(BaseModel):
 
 
 class CreateInteractionRequest(BaseModel):
-    event_type: Literal["pin", "highlight"]
+    event_type: Literal["pin", "highlight", "less_relevant"]
 
 
 AIInteractionType = Literal[

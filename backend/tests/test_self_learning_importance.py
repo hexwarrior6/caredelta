@@ -45,10 +45,95 @@ def test_prior_pins_apply_explained_bounded_learning_boost(
         f"/api/patients/{PATIENT_ID}/record", headers=headers()
     ).json()
     signal = next(item for item in record["highlights"] if item["id"] == "highlight-spirometry")
-    assert signal["learning_boost"] == MAX_LEARNING_BOOST
+    assert signal["learning_adjustment"] == MAX_LEARNING_BOOST
     assert signal["learning_reason"] == "boosted_by_prior_pins"
     assert signal["importance_score"] == min(
         100, signal["base_importance_score"] + MAX_LEARNING_BOOST
+    )
+
+
+def test_pin_changes_only_the_clicked_card(repository: MemoryRepository) -> None:
+    before = client.get(
+        f"/api/patients/{PATIENT_ID}/record",
+        headers=headers(),
+    ).json()
+    before_scores = {item["id"]: item["importance_score"] for item in before["highlights"]}
+
+    response = client.post(
+        f"/api/patients/{PATIENT_ID}/highlights/highlight-spirometry/interactions",
+        headers=headers(),
+        json={"event_type": "pin"},
+    )
+    assert response.status_code == 201
+    after = client.get(
+        f"/api/patients/{PATIENT_ID}/record",
+        headers=headers(),
+    ).json()
+    after_scores = {item["id"]: item["importance_score"] for item in after["highlights"]}
+
+    assert after_scores["highlight-spirometry"] == before_scores["highlight-spirometry"] + 4
+    assert after_scores["highlight-reliever"] == before_scores["highlight-reliever"]
+    assert after_scores["highlight-baseline-history"] == before_scores["highlight-baseline-history"]
+
+
+def test_less_relevant_feedback_reduces_only_non_safety_signal(
+    repository: MemoryRepository,
+) -> None:
+    reduced = client.post(
+        f"/api/patients/{PATIENT_ID}/highlights/highlight-baseline-history/interactions",
+        headers=headers(),
+        json={"event_type": "less_relevant"},
+    )
+    protected = client.post(
+        f"/api/patients/{PATIENT_ID}/highlights/highlight-allergy/interactions",
+        headers=headers(),
+        json={"event_type": "less_relevant"},
+    )
+    assert reduced.status_code == 201
+    assert protected.status_code == 201
+
+    record = client.get(
+        f"/api/patients/{PATIENT_ID}/record",
+        headers=headers(),
+    ).json()
+    historical = next(
+        item for item in record["highlights"] if item["id"] == "highlight-baseline-history"
+    )
+    allergy = next(
+        item for item in record["review_queue"] if item["id"] == "highlight-allergy"
+    )
+    assert historical["learning_adjustment"] == -2
+    assert historical["learning_reason"] == "reduced_by_less_relevant_feedback"
+    assert allergy["learning_adjustment"] == 0
+    assert "safety_protected_from_negative_learning" in allergy["learning_reason"]
+
+
+def test_positive_and_negative_feedback_share_one_net_adjustment(
+    repository: MemoryRepository,
+) -> None:
+    endpoint = (
+        f"/api/patients/{PATIENT_ID}/highlights/"
+        "highlight-baseline-history/interactions"
+    )
+    pinned = client.post(endpoint, headers=headers(), json={"event_type": "pin"})
+    reduced = client.post(
+        endpoint,
+        headers=headers(),
+        json={"event_type": "less_relevant"},
+    )
+    assert pinned.status_code == 201
+    assert reduced.status_code == 201
+
+    record = client.get(
+        f"/api/patients/{PATIENT_ID}/record", headers=headers()
+    ).json()
+    signal = next(
+        item for item in record["highlights"] if item["id"] == "highlight-baseline-history"
+    )
+    assert signal["learning_adjustment"] == 2
+    assert signal["importance_score"] == 55 + 2 - 12
+    assert signal["learning_reason"] == (
+        "boosted_by_prior_pins, reduced_by_less_relevant_feedback"
     )
 
 

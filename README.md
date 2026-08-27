@@ -211,9 +211,12 @@ and remain source-backed in a clinician review queue, with plain-language
 explanations for risk, confidence, and ranking.
 
 The radar learns conservatively from clinician behavior. Pins, comments, edits,
-and source highlights provide a per-user positive ranking boost capped at 12
-points, with explanations such as `boosted_by_prior_pins`; they never lower or
-rewrite clinical risk. Allergy, medication, and open-task conflicts are placed
+and source highlights update one per-user net learning adjustment capped at
++12; explicit “Less relevant” feedback subtracts from that same value, down to
+-8 for routine signals. Safety signals stop at zero, so negative feedback can
+undo a prior boost without lowering them below baseline. Explanations include `boosted_by_prior_pins` and
+`reduced_by_less_relevant_feedback`. Feedback never rewrites clinical risk, and
+negative learning is ignored for safety signals. Allergy, medication, and open-task conflicts are placed
 in review with both sources preserved. Routine old signals receive bounded data
 decay, while high-risk, contradicted, and unresolved safety information is
 exempt from age-based downgrading.

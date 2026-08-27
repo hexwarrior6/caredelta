@@ -47,7 +47,7 @@ export type Highlight = {
   trust_status: "ai_suggested" | "clinician_confirmed" | "needs_review";
   importance_score: number;
   base_importance_score: number | null;
-  learning_boost: number;
+  learning_adjustment: number;
   learning_reason: string | null;
   decay_adjustment: number;
   decay_reason: string | null;

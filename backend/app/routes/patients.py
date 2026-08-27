@@ -250,7 +250,7 @@ def create_highlight_interaction(
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
-    if payload.event_type == "pin":
+    if payload.event_type in {"pin", "less_relevant"}:
         require_action(context, Action.PIN_HIGHLIGHT)
     highlight = next((item for item in record.highlights if item.id == highlight_id), None)
     if highlight is None:
@@ -274,7 +274,7 @@ def create_highlight_interaction(
         event_type=payload.event_type,
         highlight_id=highlight.id,
         extracted_topic=highlight.category.value,
-        weight_delta=4 if payload.event_type == "pin" else 1,
+        weight_delta={"pin": 4, "highlight": 1, "less_relevant": -2}[payload.event_type],
         created_at=datetime.now(timezone.utc),
     )
     return repository.add_interaction_event(event)

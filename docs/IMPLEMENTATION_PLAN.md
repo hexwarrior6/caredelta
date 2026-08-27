@@ -283,11 +283,14 @@ creating an unsafe feedback loop.
 
 Implementation approach:
 
-- Manual highlight, pin, edit, and comment events can boost similar future
-  signals.
-- Learning is a bounded boost, not the whole importance score.
-- Dismissal does not automatically mean a class of information is clinically
-  unimportant; it is recorded as context, not negative truth.
+- Manual highlight, pin, edit, and comment events can boost the exact signal
+  acted on. Direct card actions never spill into every signal in the same
+  category.
+- Learning is a bounded adjustment, not the whole importance score: positive
+  attention and `less_relevant` feedback update one net
+  `learning_adjustment`, bounded from -8 to +12.
+- Less-relevant feedback applies only to the selected signal. It does not teach
+  that an entire clinical category is unimportant.
 - Deterministic safety floors for allergies, medication changes, high-risk
   symptoms, and unresolved tasks cannot be reduced by learned weights.
 - Store the reason for each learned boost, such as `boosted_by_prior_pins` or
@@ -682,10 +685,16 @@ README and technical brief stay consistent with the actual implementation.
   interaction events. Pin/highlight actions have an explicit scoped endpoint;
   comment and edit events are emitted by their existing server-side mutations,
   so the learning signal does not depend on client claims.
-- Personal ranking uses only the current actor's prior events. Pin, comment,
-  edit, and highlight-view weights are positive and bounded to a combined
-  maximum boost of 12 points. Explanations use stable labels such as
-  `boosted_by_prior_pins`; learning never changes clinical risk or trust state.
+- Personal ranking uses only the current actor's prior events and exact
+  highlight IDs. Pin, comment, edit, and highlight-view weights are bounded to
+  a combined maximum boost of 12 points; explicit `less_relevant` feedback can
+  reduce that same net value and routine signals by at most 8 points. Safety
+  signals use the same value, but its floor is zero: negative feedback can
+  cancel a previous boost without pushing safety information below baseline.
+  Explanations use stable labels
+  such as `boosted_by_prior_pins` and `reduced_by_less_relevant_feedback`.
+  Learning never changes clinical risk or trust state, and negative learning is
+  ignored for high-risk, contradicted, or unresolved safety signals.
 - Added deterministic allergy, medication/dose, and open-task conflict
   detection during AI ingest. Every detected conflict preserves exactly two
   timeline source IDs, is stored with the aggregate in MemoryRepository and

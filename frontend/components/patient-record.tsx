@@ -372,7 +372,7 @@ export function PatientRecord() {
 
   async function recordHighlightInteraction(
     highlight: Highlight,
-    eventType: "pin" | "highlight",
+    eventType: "pin" | "highlight" | "less_relevant",
   ) {
     try {
       await postJson(
@@ -550,29 +550,44 @@ export function PatientRecord() {
                   <p><span className="font-semibold text-teal-200">Risk:</span> {highlight.risk_floor_reason ?? highlight.risk_reason}</p>
                   <p><span className="font-semibold text-teal-200">Confidence:</span> {highlight.confidence_reason}</p>
                   <p><span className="font-semibold text-teal-200">Importance:</span> {highlight.importance_reason}</p>
-                  {highlight.learning_boost > 0 && (
-                    <p className="text-emerald-300"><span className="font-semibold">Learning +{highlight.learning_boost}:</span> {highlight.learning_reason}</p>
+                  {highlight.learning_adjustment > 0 && (
+                    <p className="text-emerald-300"><span className="font-semibold">Learning +{highlight.learning_adjustment}:</span> {highlight.learning_reason}</p>
+                  )}
+                  {highlight.learning_adjustment < 0 && (
+                    <p className="text-amber-300"><span className="font-semibold">Learning {highlight.learning_adjustment}:</span> {highlight.learning_reason}</p>
+                  )}
+                  {highlight.learning_reason?.includes("safety_protected_from_negative_learning") && (
+                    <p className="text-rose-300"><span className="font-semibold">Safety guard:</span> negative learning was ignored for this signal.</p>
                   )}
                   {highlight.decay_reason && (
                     <p><span className="font-semibold text-teal-200">Data decay {highlight.decay_adjustment}:</span> {highlight.decay_reason}</p>
                   )}
                 </div>
-                <div className="mt-5 flex flex-wrap gap-2">
+                <div className={`mt-5 grid gap-2 ${(role === "clinician" || role === "admin") ? "grid-cols-[minmax(0,1fr)_5.5rem_5.5rem]" : "grid-cols-1"}`}>
                   <button
                     type="button"
                     onClick={() => revealSource(highlight)}
-                    className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold text-teal-200 hover:bg-white/10 hover:text-white"
+                    className="min-w-0 rounded-lg border border-white/20 px-2.5 py-1.5 text-xs font-semibold text-teal-200 hover:bg-white/10 hover:text-white"
                   >
-                    Highlight source ↓
+                    Source ↓
                   </button>
                   {(role === "clinician" || role === "admin") && (
-                    <button
-                      type="button"
-                      onClick={() => void recordHighlightInteraction(highlight, "pin")}
-                      className="rounded-lg bg-teal-300 px-3 py-2 text-xs font-semibold text-teal-950 hover:bg-white"
-                    >
-                      Pin +4
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void recordHighlightInteraction(highlight, "pin")}
+                        className="rounded-lg border border-emerald-300/50 bg-emerald-300/10 px-2 py-1.5 text-xs font-semibold text-emerald-200 hover:border-emerald-200 hover:bg-emerald-300/20"
+                      >
+                        Pin <span className="font-mono">+4</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void recordHighlightInteraction(highlight, "less_relevant")}
+                        className="rounded-lg border border-amber-300/50 bg-amber-300/10 px-2 py-1.5 text-xs font-semibold text-amber-200 hover:border-amber-200 hover:bg-amber-300/20"
+                      >
+                        Reduce <span className="font-mono">−2</span>
+                      </button>
+                    </>
                   )}
                 </div>
               </article>
