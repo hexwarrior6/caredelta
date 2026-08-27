@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Any
 
 from app.models import (
     AuditLog,
@@ -384,3 +385,33 @@ def build_seed_record() -> PatientRecord:
         ],
         generated_at=_dt("2026-08-27T02:00:00"),
     )
+
+
+def _replace_seed_values(value: Any, replacements: dict[str, str]) -> Any:
+    if isinstance(value, str):
+        for old, new in replacements.items():
+            value = value.replace(old, new)
+        return value
+    if isinstance(value, list):
+        return [_replace_seed_values(item, replacements) for item in value]
+    if isinstance(value, dict):
+        return {key: _replace_seed_values(item, replacements) for key, item in value.items()}
+    return value
+
+
+def _clone_seed_patient(patient_id: str, display_name: str, age: int) -> PatientRecord:
+    document = build_seed_record().model_dump(mode="python")
+    document = _replace_seed_values(
+        document,
+        {PATIENT_ID: patient_id, "Elaine Tan": display_name, "Elaine": display_name.split()[0]},
+    )
+    document["patient"]["age"] = age
+    return PatientRecord.model_validate(document)
+
+
+def build_seed_records() -> list[PatientRecord]:
+    return [
+        build_seed_record(),
+        _clone_seed_patient("patient-syn-002", "Amir Rahman", 55),
+        _clone_seed_patient("patient-syn-003", "Sofia Chen", 34),
+    ]

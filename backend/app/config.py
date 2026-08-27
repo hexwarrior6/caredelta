@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     deepseek_max_tokens: int = Field(
         default=1_200, validation_alias="DEEPSEEK_MAX_TOKENS", ge=200, le=8_000
     )
+    demo_auth_secret: str = Field(validation_alias="DEMO_AUTH_SECRET", min_length=32)
+    allow_legacy_auth_headers: bool = Field(
+        default=False, validation_alias="ALLOW_LEGACY_AUTH_HEADERS"
+    )
 
     model_config = SettingsConfigDict(
         env_file=os.getenv("CAREDELTA_ENV_FILE", ".env.local"),

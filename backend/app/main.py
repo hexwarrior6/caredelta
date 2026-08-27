@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.config import get_settings
 from app.dependencies import close_repository, initialize_repository
 from app.routes.patients import router as patients_router
+from app.routes.auth import router as auth_router
 
 settings = get_settings()
 
@@ -44,6 +45,7 @@ app.add_middleware(
 )
 
 app.include_router(patients_router)
+app.include_router(auth_router)
 
 
 class HealthResponse(BaseModel):

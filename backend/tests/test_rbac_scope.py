@@ -28,7 +28,7 @@ def isolated_repository():
 
 def test_patient_cannot_read_raw_ai_notes_or_internal_comments() -> None:
     response = client.get(
-        f"/api/patients/{PATIENT_ID}/record", headers=headers("patient")
+        f"/api/patients/{PATIENT_ID}/record", headers=headers("patient", PATIENT_ID)
     )
 
     assert response.status_code == 200
@@ -68,7 +68,7 @@ def test_staff_read_view_excludes_clinician_and_raw_ai_content() -> None:
 def test_auth_context_is_required() -> None:
     response = client.get(f"/api/patients/{PATIENT_ID}/record")
 
-    assert response.status_code == 422
+    assert response.status_code == 401
 
 
 def test_staff_cannot_create_or_edit_clinician_section() -> None:

@@ -231,6 +231,27 @@ class AuthContext(BaseModel):
     clinic_id: str
 
 
+class DemoIdentity(BaseModel):
+    id: str
+    display_name: str
+    role: UserRole
+    clinic_id: str
+    demo_key: str
+    default_patient_id: str
+    available_patient_ids: list[str]
+
+
+class DemoLoginRequest(BaseModel):
+    identity_id: str
+    demo_key: str
+
+
+class DemoLoginResponse(BaseModel):
+    access_token: str
+    expires_in: int
+    identity: DemoIdentity
+
+
 class CreateEntryRequest(BaseModel):
     section: Literal["staff_note", "clinician_section"]
     title: str = Field(min_length=1, max_length=160)

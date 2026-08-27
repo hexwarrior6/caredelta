@@ -4,7 +4,7 @@ from pymongo import MongoClient
 
 from app.config import get_settings
 from app.repositories import MongoRepository
-from app.seed import build_seed_record
+from app.seed import build_seed_records
 from app.services.ai_ingest import DeepSeekAdapter, LLMAdapter
 
 
@@ -44,7 +44,8 @@ def get_llm_adapter() -> LLMAdapter | None:
 
 
 def initialize_repository() -> None:
-    get_repository().initialize(build_seed_record())
+    for record in build_seed_records():
+        get_repository().initialize(record)
 
 
 def close_repository() -> None:

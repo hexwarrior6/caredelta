@@ -1,5 +1,15 @@
 export type RiskLevel = "low" | "medium" | "high";
 export type UserRole = "patient" | "staff" | "clinician" | "admin";
+export type DemoIdentity = {
+  id: string;
+  display_name: string;
+  role: UserRole;
+  clinic_id: string;
+  demo_key: string;
+  default_patient_id: string;
+  available_patient_ids: string[];
+};
+export type DemoSession = { access_token: string; expires_in: number; identity: DemoIdentity };
 export type AIInteractionType =
   | "ai_doctor_consult_summary"
   | "ai_nurse_consult_summary"

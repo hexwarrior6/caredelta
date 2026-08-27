@@ -11,20 +11,11 @@ import type {
   RiskLevel,
   TimelineEntry,
   UserRole,
+  DemoSession,
   Version,
 } from "@/lib/types";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const patientId = "patient-syn-001";
-const clinicId = "clinic-syn-orchard";
-
-const demoActors: Record<UserRole, string> = {
-  patient: "patient-syn-001",
-  staff: "staff-syn-chen",
-  clinician: "clinician-syn-lim",
-  admin: "admin-syn-orchard",
-};
-
 const categoryLabels: Record<string, string> = {
   new: "New",
   worsening: "Worsening",
@@ -109,8 +100,8 @@ function TimelineContent({
   );
 }
 
-export function PatientRecord() {
-  const [role, setRole] = useState<UserRole>("clinician");
+export function PatientRecord({ session, patientId, onLogout }: { session: DemoSession; patientId: string; onLogout: () => void }) {
+  const role: UserRole = session.identity.role;
   const [record, setRecord] = useState<PatientRecordData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focusedHighlight, setFocusedHighlight] = useState<Highlight | null>(null);
@@ -136,11 +127,9 @@ export function PatientRecord() {
   const authHeaders = useCallback(
     () => ({
       "Content-Type": "application/json",
-      "X-Actor-Id": demoActors[role],
-      "X-Actor-Role": role,
-      "X-Clinic-Id": clinicId,
+      Authorization: `Bearer ${session.access_token}`,
     }),
-    [role],
+    [session.access_token],
   );
 
   const loadRecord = useCallback(async (signal?: AbortSignal, requestedPage = 1) => {
@@ -156,7 +145,7 @@ export function PatientRecord() {
     const nextRecord = (await response.json()) as PatientRecordData;
     setRecord(nextRecord);
     setHighlightPage(nextRecord.highlight_pagination.page);
-  }, [authHeaders]);
+  }, [authHeaders, patientId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -333,7 +322,7 @@ export function PatientRecord() {
       return ["staff_note", "clinician_note", "clinician_section"].includes(entry.entry_type);
     }
     if (role === "staff") {
-      return entry.entry_type === "staff_note" && entry.author_id === demoActors.staff;
+      return entry.entry_type === "staff_note" && entry.author_id === session.identity.id;
     }
     return role === "clinician" && ["clinician_note", "clinician_section"].includes(entry.entry_type);
   }
@@ -451,27 +440,13 @@ export function PatientRecord() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="hidden text-xs text-slate-400 sm:inline">Demo preview only</span>
-            <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1" aria-label="Preview role">
-              {(["patient", "staff", "clinician", "admin"] as UserRole[]).map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => {
-                    setHighlightPage(1);
-                    setRole(item);
-                  }}
-                  aria-pressed={role === item}
-                  className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold capitalize transition sm:px-3 ${
-                    role === item
-                      ? "bg-teal-950 text-white shadow-sm"
-                      : "text-slate-500 hover:text-slate-900"
-                  }`}
-                >
-                  {item}
-                </button>
-              ))}
+            <div className="hidden text-right sm:block">
+              <p className="text-xs font-semibold text-slate-700">{session.identity.display_name}</p>
+              <p className="text-[11px] capitalize text-slate-400">{role} demo session</p>
             </div>
+            <button type="button" onClick={onLogout} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+              Log out
+            </button>
           </div>
         </div>
       </header>
