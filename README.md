@@ -184,6 +184,15 @@ source quote, character offsets, source metadata, and a high/medium/low
 confidence value. The frontend uses this pointer to scroll from the glance card
 to the supporting timeline entry and mark the exact span.
 
+AI-scribed timeline entries also carry their own structured `source_pointer`,
+separate from highlight provenance. It records source type and ID, an optional
+session/reference, the retained transcript reference, whether the original is
+available, and a human-readable label. Patient-chat entries can navigate back to
+the stored conversation. Voice transcription returns a server-issued reference;
+the resulting entry retains that reference while explicitly recording that raw
+audio is not stored. Pasted transcripts point to the controlled redacted timeline
+entry rather than implying an unavailable original source.
+
 Staff, clinician, and admin views can create role-appropriate notes and internal
 comments through the timeline. Comment status is updated independently from the
 source note so collaboration never overwrites clinical content.

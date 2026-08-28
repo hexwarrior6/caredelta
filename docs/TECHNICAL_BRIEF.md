@@ -77,8 +77,11 @@ Patient 1---* TimelineEntry 1---* Comment
 ```
 
 `TimelineEntry` records author role/id, timestamp, interaction type, visibility,
-content, and version. AI-scribed doctor, nurse, and patient sessions are distinct
-system entry types. A `Highlight` stores category, risk and reason, extraction
+content, version, and a structured source pointer. AI-scribed doctor, nurse, and
+patient sessions are distinct system entry types. Patient-chat pointers resolve
+back to the stored session; voice pointers retain a server-issued transcription
+reference while declaring that raw audio is not retained; pasted transcripts
+resolve to the controlled timeline transcript. A `Highlight` stores category, risk and reason, extraction
 confidence and reason, trust state, base/effective importance, and a provenance
 pointer containing source entry, exact quote, offsets, and offset confidence.
 The UI jumps from a card to that span and marks it in the timeline.

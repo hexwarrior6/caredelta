@@ -87,6 +87,20 @@ export type TimelineEntry = {
   content: string;
   version: number;
   source_label: string;
+  source_pointer: {
+    source_type:
+      | "manual_note"
+      | "synthetic_transcript"
+      | "pasted_transcript"
+      | "audio_transcript"
+      | "patient_chat_session";
+    source_id: string;
+    session_id: string | null;
+    source_reference: string | null;
+    transcript_reference: string;
+    original_available: boolean;
+    label: string;
+  } | null;
 };
 
 export type PatientChatMessage = {
@@ -185,6 +199,7 @@ export type AudioTranscriptionResult = {
   engine: "volcengine_bigmodel_flash";
   filename: string;
   content_type: string;
+  source_reference: string;
 };
 
 export type AIIngestResult = {

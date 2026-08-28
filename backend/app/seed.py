@@ -16,6 +16,7 @@ from app.models import (
     SignalCategory,
     Task,
     TimelineEntry,
+    TimelineSourcePointer,
     TrustStatus,
     UserRole,
     Version,
@@ -70,6 +71,13 @@ def build_seed_record() -> PatientRecord:
         visibility_scope=VisibilityScope.CLINICIAN,
         version=1,
         source_label="Clinician-authored note",
+        source_pointer=TimelineSourcePointer(
+            source_type="manual_note",
+            source_id="entry-2025-04-15",
+            transcript_reference="timeline-entry:entry-2025-04-15",
+            original_available=True,
+            label="Clinician-authored note",
+        ),
     )
     february_entry = TimelineEntry(
         id="entry-2026-02-06",
@@ -91,6 +99,15 @@ def build_seed_record() -> PatientRecord:
         visibility_scope=VisibilityScope.CLINICIAN,
         version=2,
         source_label="Synthetic transcript · session syn-260206",
+        source_pointer=TimelineSourcePointer(
+            source_type="synthetic_transcript",
+            source_id="syn-260206",
+            session_id="syn-260206",
+            source_reference="synthetic-session:syn-260206",
+            transcript_reference="timeline-entry:entry-2026-02-06",
+            original_available=False,
+            label="Synthetic doctor-consult transcript",
+        ),
     )
     august_entry = TimelineEntry(
         id="entry-2026-08-27",

@@ -40,6 +40,7 @@ from app.models import (
     SignalCategory,
     RevertEntryRequest,
     TimelineEntry,
+    TimelineSourcePointer,
     UpdateEntryRequest,
     UpdateCommentStatusRequest,
     UserRole,
@@ -149,6 +150,7 @@ async def transcribe_consult_audio(
         engine="volcengine_bigmodel_flash",
         filename=audio.filename or "consult-audio",
         content_type=reported_content_type,
+        source_reference=f"audio-transcription-{uuid4()}",
     )
 
 
@@ -279,6 +281,8 @@ def ingest_patient_chat(
             transcript=transcript,
             source_id=session.id,
             interaction_type="ai_patient_session_summary",
+            source_kind="patient_chat_session",
+            source_reference=session.id,
         ),
         repository,
         adapter,
@@ -312,6 +316,15 @@ def ingest_ai_scribed_note(
             status_code=403,
             detail="Patients may ingest only their own patient-session conversations",
         )
+    if payload.source_kind == "patient_chat_session":
+        session_id = payload.source_reference or payload.source_id
+        if context.role != UserRole.PATIENT or session_id != payload.source_id or not any(
+            session.id == session_id for session in record.patient_chat_sessions
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Patient-chat provenance must resolve to the authenticated stored session",
+            )
 
     ingest_key = f"{payload.interaction_type}:{payload.source_id}"
     if any(
@@ -333,8 +346,48 @@ def ingest_ai_scribed_note(
         extraction_source = "\n".join(patient_lines) or redaction.text
     extraction, method, fallback_reason = extract_with_fallback(adapter, extraction_source)
     now = datetime.now(timezone.utc)
+    entry_id = f"entry-{uuid4()}"
+    source_label = f"{payload.interaction_type} · {payload.source_id}"
+    if payload.source_kind == "patient_chat_session":
+        source_pointer = TimelineSourcePointer(
+            source_type="patient_chat_session",
+            source_id=payload.source_id,
+            session_id=payload.source_reference or payload.source_id,
+            source_reference=payload.source_reference or payload.source_id,
+            transcript_reference=f"timeline-entry:{entry_id}",
+            original_available=True,
+            label="Patient AI conversation",
+        )
+        source_label = f"Patient AI session · {payload.source_id}"
+    elif payload.source_kind == "audio_transcript":
+        if not payload.source_reference or not payload.source_reference.startswith(
+            "audio-transcription-"
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Audio ingest requires a server-issued transcription reference",
+            )
+        source_pointer = TimelineSourcePointer(
+            source_type="audio_transcript",
+            source_id=payload.source_id,
+            source_reference=payload.source_reference,
+            transcript_reference=f"timeline-entry:{entry_id}",
+            original_available=False,
+            label="Voice transcript (original audio not retained)",
+        )
+        source_label = f"Voice transcript · {payload.source_reference}"
+    else:
+        source_pointer = TimelineSourcePointer(
+            source_type="pasted_transcript",
+            source_id=payload.source_id,
+            source_reference=f"ingest-source:{payload.source_id}",
+            transcript_reference=f"timeline-entry:{entry_id}",
+            original_available=False,
+            label="Submitted transcript",
+        )
+
     entry = TimelineEntry(
-        id=f"entry-{uuid4()}",
+        id=entry_id,
         patient_id=patient_id,
         clinic_id=record.patient.clinic_id,
         author_role=AuthorRole.SYSTEM,
@@ -354,7 +407,8 @@ def ingest_ai_scribed_note(
             else VisibilityScope.CLINICIAN
         ),
         version=1,
-        source_label=f"{payload.interaction_type} · {payload.source_id}",
+        source_label=source_label,
+        source_pointer=source_pointer,
     )
     highlights: list[Highlight] = []
     for signal in extraction.signals:

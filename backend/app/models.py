@@ -73,6 +73,22 @@ class Patient(BaseModel):
     last_visit_at: datetime
 
 
+class TimelineSourcePointer(BaseModel):
+    source_type: Literal[
+        "manual_note",
+        "synthetic_transcript",
+        "pasted_transcript",
+        "audio_transcript",
+        "patient_chat_session",
+    ]
+    source_id: str
+    session_id: str | None = None
+    source_reference: str | None = None
+    transcript_reference: str
+    original_available: bool = False
+    label: str
+
+
 class TimelineEntry(BaseModel):
     id: str
     patient_id: str
@@ -87,6 +103,7 @@ class TimelineEntry(BaseModel):
     visibility_scope: VisibilityScope
     version: int = Field(ge=1)
     source_label: str
+    source_pointer: TimelineSourcePointer | None = None
 
 
 class ProvenancePointer(BaseModel):
@@ -341,12 +358,17 @@ class AudioTranscriptionResponse(BaseModel):
     engine: Literal["volcengine_bigmodel_flash"]
     filename: str
     content_type: str
+    source_reference: str
 
 
 class AIIngestRequest(BaseModel):
     transcript: str = Field(min_length=1, max_length=50_000)
     source_id: str = Field(min_length=1, max_length=160)
     interaction_type: AIInteractionType
+    source_kind: Literal[
+        "pasted_transcript", "audio_transcript", "patient_chat_session"
+    ] = "pasted_transcript"
+    source_reference: str | None = Field(default=None, max_length=200)
 
 
 class AIIngestResponse(BaseModel):

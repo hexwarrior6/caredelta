@@ -776,3 +776,27 @@ Submission-readiness update (28 August 2026):
   together and reject duplicate spans. `tests/test_manual_highlights.py` covers
   exact resolution, risk floors, persistence, audit safety, RBAC, clinic scope,
   stale offsets, source restrictions, duplicate handling, and patient filtering.
+
+### Phase 12: Timeline Entry Source Provenance
+
+- Added a structured optional `TimelineSourcePointer` to `TimelineEntry` with
+  source type/ID, optional session and source reference, retained transcript
+  reference, original-availability flag, and a concise label. The legacy
+  `source_label` remains for backward compatibility with existing Atlas records.
+- Normal submitted text creates a `pasted_transcript` pointer to the controlled,
+  redacted timeline transcript. AI Patient Chat promotion creates a
+  `patient_chat_session` pointer that resolves to the authenticated stored chat
+  session. The timeline UI can navigate a patient directly back to that session.
+- Audio transcription now returns an opaque server-issued reference. When the
+  editable transcript is ingested, the entry records an `audio_transcript`
+  pointer with that reference and explicitly sets `original_available=false`;
+  raw audio is not persisted or exposed, and the retained redacted transcript is
+  the source used for provenance.
+- The UI replaces opaque source-label text with a structured Source Details
+  control showing IDs, session/reference, transcript pointer, source type, and
+  original-retention status. Role filtering of the entry remains authoritative,
+  so the pointer cannot leak a hidden transcript or session.
+- Added regression coverage for pasted pointers, Patient Chat session linkage,
+  server-issued audio references, voice-source retention semantics, and rejection
+  of an invalid audio reference. Existing highlight span provenance remains
+  independent and still resolves to exact TimelineEntry text.

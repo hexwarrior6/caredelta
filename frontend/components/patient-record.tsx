@@ -219,6 +219,8 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
   const [showAIIngest, setShowAIIngest] = useState(false);
   const [interactionType, setInteractionType] = useState<AIInteractionType>("ai_doctor_consult_summary");
   const [sourceId, setSourceId] = useState(() => crypto.randomUUID());
+  const [ingestSourceKind, setIngestSourceKind] = useState<"pasted_transcript" | "audio_transcript">("pasted_transcript");
+  const [ingestSourceReference, setIngestSourceReference] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [redactionPreview, setRedactionPreview] = useState<AIRedactionPreview | null>(null);
   const [ingestResult, setIngestResult] = useState<AIIngestResult | null>(null);
@@ -229,6 +231,7 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
   const [reviewQueueIndex, setReviewQueueIndex] = useState(0);
   const [actionIndex, setActionIndex] = useState(0);
   const [conflictIndex, setConflictIndex] = useState(0);
+  const [sourceDetailsEntryId, setSourceDetailsEntryId] = useState<string | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -374,6 +377,8 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
       setRedactionPreview(null);
       setIngestResult(null);
       setSourceId(crypto.randomUUID());
+      setIngestSourceKind("pasted_transcript");
+      setIngestSourceReference(null);
     }
     setShowAIIngest((current) => !current);
   }
@@ -393,6 +398,8 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
         const type = recorder.mimeType || "audio/webm";
         const blob = new Blob(audioChunksRef.current, { type });
         setAudioFile(new File([blob], `consult-${Date.now()}.webm`, { type }));
+        setIngestSourceKind("pasted_transcript");
+        setIngestSourceReference(null);
         mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
         mediaStreamRef.current = null;
       };
@@ -429,6 +436,8 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
       }
       const result = (await response.json()) as AudioTranscriptionResult;
       setTranscript(result.transcript);
+      setIngestSourceKind("audio_transcript");
+      setIngestSourceReference(result.source_reference);
     } catch (caught) {
       setMutationError(caught instanceof Error ? caught.message : "Unable to transcribe audio");
     } finally {
@@ -448,10 +457,14 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
           interaction_type: interactionType,
           source_id: sourceId,
           transcript,
+          source_kind: ingestSourceKind,
+          source_reference: ingestSourceReference,
         },
       );
       setIngestResult(result);
       setSourceId(crypto.randomUUID());
+      setIngestSourceKind("pasted_transcript");
+      setIngestSourceReference(null);
       setHighlightPage(1);
       await loadRecord(undefined, 1);
       if (result.highlights[0]) setFocusedHighlight(result.highlights[0]);
@@ -676,6 +689,19 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
     requestAnimationFrame(() => {
       document.getElementById(entryId)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
+  }
+
+  function openTimelineSource(entry: TimelineEntry) {
+    const pointer = entry.source_pointer;
+    if (!pointer) return;
+    if (pointer.source_type === "patient_chat_session" && pointer.session_id && role === "patient") {
+      setActiveChatId(pointer.session_id);
+      requestAnimationFrame(() => {
+        document.getElementById("patient-ai-assistant")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      return;
+    }
+    setSourceDetailsEntryId((current) => current === entry.id ? null : entry.id);
   }
 
   async function changeHighlightPage(page: number) {
@@ -915,7 +941,7 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
         </section>
 
         {role === "patient" && (
-          <section className="mt-8 overflow-hidden rounded-3xl border border-sky-200 bg-white shadow-sm">
+          <section id="patient-ai-assistant" className="mt-8 scroll-mt-6 overflow-hidden rounded-3xl border border-sky-200 bg-white shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-sky-100 bg-sky-50 px-5 py-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Patient AI assistant</p>
@@ -1068,7 +1094,11 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                             type="file"
                             accept="audio/*"
                             className="sr-only"
-                            onChange={(event) => setAudioFile(event.target.files?.[0] ?? null)}
+                            onChange={(event) => {
+                              setAudioFile(event.target.files?.[0] ?? null);
+                              setIngestSourceKind("pasted_transcript");
+                              setIngestSourceReference(null);
+                            }}
                           />
                         </label>
                         <button
@@ -1260,7 +1290,14 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                         </form>
                       )}
                       <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500">
-                        <span>{entry.source_label}</span>
+                        {entry.source_pointer ? (
+                          <button type="button" onClick={() => openTimelineSource(entry)} className="inline-flex items-center gap-1.5 font-semibold text-violet-700 hover:text-violet-900">
+                            <span aria-hidden="true">↗</span>
+                            {entry.source_pointer.source_type === "patient_chat_session" && role === "patient" ? "Open source session" : "Source details"}
+                          </button>
+                        ) : (
+                          <span>{entry.source_label}</span>
+                        )}
                         {isFocused && focusedHighlight && (
                           <span className="font-semibold text-amber-700">
                             Exact source · {focusedHighlight.provenance_pointer.offset_confidence} confidence
@@ -1290,6 +1327,25 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                           </button>
                         )}
                       </div>
+
+                      {entry.source_pointer && sourceDetailsEntryId === entry.id && (
+                        <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/60 p-3 text-xs text-slate-600">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-semibold text-violet-900">{entry.source_pointer.label}</p>
+                            <span className="rounded-full bg-white px-2 py-1 font-mono text-[10px] uppercase text-violet-700">{entry.source_pointer.source_type.replaceAll("_", " ")}</span>
+                          </div>
+                          <dl className="mt-2 grid gap-1.5 sm:grid-cols-[9rem_1fr]">
+                            <dt className="font-semibold text-slate-500">Source ID</dt>
+                            <dd className="break-all font-mono">{entry.source_pointer.source_id}</dd>
+                            {entry.source_pointer.session_id && <><dt className="font-semibold text-slate-500">Session ID</dt><dd className="break-all font-mono">{entry.source_pointer.session_id}</dd></>}
+                            {entry.source_pointer.source_reference && <><dt className="font-semibold text-slate-500">Source reference</dt><dd className="break-all font-mono">{entry.source_pointer.source_reference}</dd></>}
+                            <dt className="font-semibold text-slate-500">Transcript</dt>
+                            <dd className="break-all font-mono">{entry.source_pointer.transcript_reference}</dd>
+                            <dt className="font-semibold text-slate-500">Original retained</dt>
+                            <dd>{entry.source_pointer.original_available ? "Yes — access remains role-scoped" : "No — the controlled transcript is the retained source"}</dd>
+                          </dl>
+                        </div>
+                      )}
 
                       {editEntryId === entry.id && canEditEntry(entry) && (
                         <form onSubmit={(event) => void submitEdit(event, entry)} className="mt-4 rounded-xl border border-teal-200 bg-teal-50/50 p-4">
