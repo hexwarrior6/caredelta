@@ -66,6 +66,7 @@ function formatDate(value: string, includeTime = false) {
 function trustLabel(status: Highlight["trust_status"]) {
   if (status === "clinician_confirmed") return "Clinician confirmed";
   if (status === "needs_review") return "Needs review";
+  if (status === "rejected") return "Rejected";
   return "AI suggested";
 }
 
@@ -556,6 +557,24 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
     }
   }
 
+  async function decideHighlight(highlight: Highlight, decision: "accept" | "reject") {
+    const reason = decision === "reject"
+      ? window.prompt("Optional rejection reason", "Not appropriate for trusted clinical memory.")
+      : "Accepted after reviewing the linked source.";
+    if (reason === null) return;
+    try {
+      await mutate(
+        `/api/patients/${patientId}/highlights/${highlight.id}/decision`,
+        "POST",
+        { decision, reason },
+      );
+      setReviewQueueIndex(0);
+      if (decision === "reject" && focusedHighlight?.id === highlight.id) {
+        setFocusedHighlight(null);
+      }
+    } catch {}
+  }
+
   function revealConflictSource(entryId: string) {
     setFocusedHighlight(null);
     requestAnimationFrame(() => {
@@ -720,27 +739,51 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                     <p><span className="font-semibold text-teal-200">Data decay {highlight.decay_adjustment}:</span> {highlight.decay_reason}</p>
                   )}
                 </div>
-                <div className={`mt-5 grid gap-2 ${(role === "clinician" || role === "admin") ? "grid-cols-[minmax(0,1fr)_5.5rem_5.5rem]" : "grid-cols-1"}`}>
+                <div className={`mt-5 grid gap-2 ${(role === "clinician" || role === "admin") ? "grid-cols-2" : "grid-cols-1"}`}>
                   <button
                     type="button"
                     onClick={() => revealSource(highlight)}
-                    className="min-w-0 rounded-lg border border-white/20 px-2.5 py-1.5 text-xs font-semibold text-teal-200 hover:bg-white/10 hover:text-white"
+                    className={`${(role === "clinician" || role === "admin") ? "col-span-2" : ""} min-w-0 rounded-lg border border-white/20 px-2.5 py-1.5 text-xs font-semibold text-teal-200 hover:bg-white/10 hover:text-white`}
                   >
                     Source ↓
                   </button>
                   {(role === "clinician" || role === "admin") && (
                     <>
+                      {highlight.trust_status !== "clinician_confirmed" ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void decideHighlight(highlight, "accept")}
+                          className="rounded-lg border border-emerald-300/60 bg-emerald-300/15 px-2 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-300/25 disabled:opacity-50"
+                        >
+                          Accept
+                        </button>
+                      ) : (
+                        <span className="grid place-items-center rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-2 py-1.5 text-xs font-semibold text-emerald-200">
+                          Confirmed
+                        </span>
+                      )}
                       <button
                         type="button"
+                        disabled={busy}
+                        onClick={() => void decideHighlight(highlight, "reject")}
+                        className="rounded-lg border border-rose-300/50 bg-rose-300/10 px-2 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-300/20 disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
                         onClick={() => void recordHighlightInteraction(highlight, "pin")}
-                        className="rounded-lg border border-emerald-300/50 bg-emerald-300/10 px-2 py-1.5 text-xs font-semibold text-emerald-200 hover:border-emerald-200 hover:bg-emerald-300/20"
+                        className="rounded-lg border border-teal-300/50 bg-teal-300/10 px-2 py-1.5 text-xs font-semibold text-teal-100 hover:bg-teal-300/20 disabled:opacity-50"
                       >
                         Pin <span className="font-mono">+4</span>
                       </button>
                       <button
                         type="button"
+                        disabled={busy}
                         onClick={() => void recordHighlightInteraction(highlight, "less_relevant")}
-                        className="rounded-lg border border-amber-300/50 bg-amber-300/10 px-2 py-1.5 text-xs font-semibold text-amber-200 hover:border-amber-200 hover:bg-amber-300/20"
+                        className="rounded-lg border border-amber-300/50 bg-amber-300/10 px-2 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-300/20 disabled:opacity-50"
                       >
                         Reduce <span className="font-mono">−2</span>
                       </button>
@@ -1275,11 +1318,9 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                 ) : (
                   <div className="mt-2 space-y-1.5">
                     {record.review_queue.slice(reviewQueueIndex, reviewQueueIndex + 1).map((highlight) => (
-                      <button
+                      <div
                         key={highlight.id}
-                        type="button"
-                        onClick={() => revealSource(highlight)}
-                        className="h-40 w-full overflow-hidden rounded-lg border border-amber-200 bg-white p-2.5 text-left transition hover:border-amber-400"
+                        className="w-full rounded-lg border border-amber-200 bg-white p-2.5"
                       >
                         <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase">
                           <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">Review needed</span>
@@ -1288,8 +1329,14 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                         </div>
                         <p className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-slate-900">{highlight.text}</p>
                         <p className="mt-1 line-clamp-2 text-xs leading-4 text-slate-600">{highlight.abstention_reason ?? highlight.confidence_reason}</p>
-                        <p className="mt-1 text-xs font-semibold text-amber-700">Inspect source →</p>
-                      </button>
+                        <button type="button" onClick={() => revealSource(highlight)} className="mt-2 text-xs font-semibold text-amber-700 hover:text-amber-900">Inspect source →</button>
+                        {(role === "clinician" || role === "admin") && (
+                          <div className="mt-2 grid grid-cols-2 gap-2 border-t border-amber-100 pt-2">
+                            <button type="button" disabled={busy} onClick={() => void decideHighlight(highlight, "accept")} className="rounded-lg bg-emerald-700 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">Accept</button>
+                            <button type="button" disabled={busy} onClick={() => void decideHighlight(highlight, "reject")} className="rounded-lg border border-rose-200 px-2 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Reject</button>
+                          </div>
+                        )}
+                      </div>
                     ))}
                     {record.review_queue.length > 1 && (
                       <div className="grid grid-cols-[28px_1fr_28px] items-center gap-2" aria-label="Review queue pagination">

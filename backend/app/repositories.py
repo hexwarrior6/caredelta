@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import datetime
 from typing import Any, Protocol
 
 from pymongo.collection import Collection
@@ -12,6 +13,8 @@ from app.models import (
     PatientRecord,
     PatientChatSession,
     TimelineEntry,
+    TrustStatus,
+    UserRole,
     Version,
 )
 
@@ -30,6 +33,18 @@ class PatientRecordRepository(Protocol):
     def add_comment(self, comment: Comment) -> Comment: ...
 
     def add_interaction_event(self, event: InteractionEvent) -> InteractionEvent: ...
+
+    def decide_highlight(
+        self,
+        patient_id: str,
+        highlight_id: str,
+        trust_status: TrustStatus,
+        reviewer_id: str,
+        reviewer_role: UserRole,
+        reviewed_at: datetime,
+        review_reason: str,
+        audit_log: AuditLog,
+    ) -> Highlight | None: ...
 
     def save_patient_chat_session(self, session: PatientChatSession) -> PatientChatSession: ...
 
@@ -93,6 +108,43 @@ class MemoryRepository:
     def add_interaction_event(self, event: InteractionEvent) -> InteractionEvent:
         self._records[event.patient_id].interaction_events.append(deepcopy(event))
         return deepcopy(event)
+
+    def decide_highlight(
+        self,
+        patient_id: str,
+        highlight_id: str,
+        trust_status: TrustStatus,
+        reviewer_id: str,
+        reviewer_role: UserRole,
+        reviewed_at: datetime,
+        review_reason: str,
+        audit_log: AuditLog,
+    ) -> Highlight | None:
+        record = self._records.get(patient_id)
+        if record is None:
+            return None
+        for index, highlight in enumerate(record.highlights):
+            if highlight.id != highlight_id:
+                continue
+            updated = highlight.model_copy(
+                update={
+                    "trust_status": trust_status,
+                    "abstained_from_glance": trust_status == TrustStatus.REJECTED,
+                    "abstention_reason": (
+                        "Rejected by clinical review."
+                        if trust_status == TrustStatus.REJECTED
+                        else None
+                    ),
+                    "reviewed_by": reviewer_id,
+                    "reviewed_by_role": reviewer_role,
+                    "reviewed_at": reviewed_at,
+                    "review_reason": review_reason,
+                }
+            )
+            record.highlights[index] = updated
+            record.audit_logs.append(deepcopy(audit_log))
+            return deepcopy(updated)
+        return None
 
     def save_patient_chat_session(self, session: PatientChatSession) -> PatientChatSession:
         record = self._records[session.patient_id]
@@ -275,6 +327,49 @@ class MongoRepository:
         if result.matched_count == 0:
             raise KeyError(event.patient_id)
         return event.model_copy(deep=True)
+
+    def decide_highlight(
+        self,
+        patient_id: str,
+        highlight_id: str,
+        trust_status: TrustStatus,
+        reviewer_id: str,
+        reviewer_role: UserRole,
+        reviewed_at: datetime,
+        review_reason: str,
+        audit_log: AuditLog,
+    ) -> Highlight | None:
+        result = self._collection.update_one(
+            {"patient.id": patient_id, "highlights.id": highlight_id},
+            {
+                "$set": {
+                    "highlights.$.trust_status": trust_status.value,
+                    "highlights.$.abstained_from_glance": trust_status
+                    == TrustStatus.REJECTED,
+                    "highlights.$.abstention_reason": (
+                        "Rejected by clinical review."
+                        if trust_status == TrustStatus.REJECTED
+                        else None
+                    ),
+                    "highlights.$.reviewed_by": reviewer_id,
+                    "highlights.$.reviewed_by_role": reviewer_role.value,
+                    "highlights.$.reviewed_at": reviewed_at,
+                    "highlights.$.review_reason": review_reason,
+                },
+                "$push": {"audit_logs": audit_log.model_dump(mode="python")},
+            },
+        )
+        if result.matched_count == 0:
+            return None
+        record = self.get_patient_record(patient_id)
+        return (
+            next(
+                (highlight for highlight in record.highlights if highlight.id == highlight_id),
+                None,
+            )
+            if record
+            else None
+        )
 
     def save_patient_chat_session(self, session: PatientChatSession) -> PatientChatSession:
         document = session.model_dump(mode="python")

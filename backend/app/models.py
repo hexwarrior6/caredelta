@@ -45,6 +45,7 @@ class TrustStatus(StrEnum):
     AI_SUGGESTED = "ai_suggested"
     CLINICIAN_CONFIRMED = "clinician_confirmed"
     NEEDS_REVIEW = "needs_review"
+    REJECTED = "rejected"
 
 
 class ProvenanceConfidence(StrEnum):
@@ -121,6 +122,10 @@ class Highlight(BaseModel):
     risk_floor_reason: str | None = None
     abstained_from_glance: bool = False
     abstention_reason: str | None = None
+    reviewed_by: str | None = None
+    reviewed_by_role: UserRole | None = None
+    reviewed_at: datetime | None = None
+    review_reason: str | None = None
     provenance_pointer: ProvenancePointer
     created_at: datetime
 
@@ -298,6 +303,11 @@ class UpdateCommentStatusRequest(BaseModel):
 
 class CreateInteractionRequest(BaseModel):
     event_type: Literal["pin", "highlight", "less_relevant"]
+
+
+class HighlightDecisionRequest(BaseModel):
+    decision: Literal["accept", "reject"]
+    reason: str | None = Field(default=None, max_length=500)
 
 
 AIInteractionType = Literal[

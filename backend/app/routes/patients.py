@@ -31,6 +31,7 @@ from app.models import (
     PatientChatResponse,
     PatientChatSession,
     Highlight,
+    HighlightDecisionRequest,
     InteractionEvent,
     ProvenanceConfidence,
     ProvenancePointer,
@@ -39,6 +40,7 @@ from app.models import (
     UpdateEntryRequest,
     UpdateCommentStatusRequest,
     UserRole,
+    TrustStatus,
     Version,
     VisibilityScope,
 )
@@ -481,6 +483,85 @@ def create_highlight_interaction(
         created_at=datetime.now(timezone.utc),
     )
     return repository.add_interaction_event(event)
+
+
+@router.post(
+    "/{patient_id}/highlights/{highlight_id}/decision",
+    response_model=Highlight,
+)
+def decide_highlight(
+    patient_id: str,
+    highlight_id: str,
+    payload: HighlightDecisionRequest,
+    repository: Annotated[PatientRecordRepository, Depends(get_repository)],
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+) -> Highlight:
+    record = repository.get_patient_record(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+    require_clinic_scope(context, record.patient.clinic_id)
+    action = (
+        Action.ACCEPT_HIGHLIGHT
+        if payload.decision == "accept"
+        else Action.REJECT_HIGHLIGHT
+    )
+    require_action(context, action)
+    highlight = next((item for item in record.highlights if item.id == highlight_id), None)
+    if highlight is None:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+    source_entry = next(
+        (
+            item
+            for item in record.timeline_entries
+            if item.id == highlight.provenance_pointer.entry_id
+        ),
+        None,
+    )
+    if source_entry is None:
+        raise HTTPException(status_code=409, detail="Highlight source is unavailable")
+    require_action(context, entry_action(source_entry))
+
+    now = datetime.now(timezone.utc)
+    accepted = payload.decision == "accept"
+    trust_status = (
+        TrustStatus.CLINICIAN_CONFIRMED if accepted else TrustStatus.REJECTED
+    )
+    reason = (payload.reason or "").strip() or (
+        "Accepted after clinical source review."
+        if accepted
+        else "Rejected after clinical source review."
+    )
+    audit_log = AuditLog(
+        id=f"audit-{uuid4()}",
+        patient_id=patient_id,
+        actor_id=context.actor_id,
+        actor_role=AuthorRole(context.role.value),
+        action="accept_highlight" if accepted else "reject_highlight",
+        entity_type="highlight",
+        entity_id=highlight_id,
+        changed_fields=[
+            "trust_status",
+            "reviewed_by",
+            "reviewed_by_role",
+            "reviewed_at",
+            "review_reason",
+        ],
+        created_at=now,
+        request_id=f"request-{uuid4()}",
+    )
+    updated = repository.decide_highlight(
+        patient_id,
+        highlight_id,
+        trust_status,
+        context.actor_id,
+        context.role,
+        now,
+        reason,
+        audit_log,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+    return updated
 
 
 def require_entry_edit(context: AuthContext, entry: TimelineEntry) -> None:

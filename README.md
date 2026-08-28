@@ -245,6 +245,14 @@ confidence. Low-confidence or conflicting signals abstain from the glance card
 and remain source-backed in a clinician review queue, with plain-language
 explanations for risk, confidence, and ranking.
 
+Clinicians and clinic admins can accept or reject suggestions from either the
+glance card or review queue. Accepting records a named clinical review and moves
+the signal to `clinician_confirmed`; rejecting removes it from both the glance
+card and review queue. Every decision persists reviewer, role, timestamp, and
+reason with a metadata-only audit event. Confirmation never bypasses source
+visibility: a patient can see a confirmed signal only when its source entry is
+already patient-visible.
+
 The radar learns conservatively from clinician behavior. Pins, comments, edits,
 and source highlights update one per-user net learning adjustment capped at
 +12; explicit “Less relevant” feedback subtracts from that same value, down to

@@ -725,3 +725,25 @@ Submission-readiness update (28 August 2026):
 - `tests/test_self_learning_importance.py` proves the boost cap, prior-pin
   explanation, safety non-degradation, historical decay, all four interaction
   event types, and two-source allergy/medication/task conflict creation.
+
+### Phase 10: Clinical Highlight Decisions
+
+- Added `POST /api/patients/{patient_id}/highlights/{highlight_id}/decision`
+  with `accept` and `reject` decisions. Only clinicians and clinic-scoped admins
+  pass the existing `accept_highlight` / `reject_highlight` server actions.
+- Accept transitions the signal to `clinician_confirmed` and clears automatic
+  abstention. Reject transitions it to `rejected`, excludes it from both Glance
+  and Review Queue, and retains the source-backed record for auditability.
+- Both MemoryRepository and MongoRepository persist reviewer ID, reviewer role,
+  review timestamp, reason, and a metadata-only audit event in the same write.
+  A later authorized review may reverse an earlier decision without deleting
+  the prior audit event.
+- Source visibility remains an independent safety gate. Confirmation allows a
+  patient to see a signal only when its source entry is already patient-visible;
+  accepting a raw clinician or AI note never exposes that note or its highlight.
+- The Glance card now provides Accept, Reject, Pin, and Reduce controls for
+  clinicians/admins. The care-team Review Queue provides direct source inspection
+  plus fast Accept/Reject actions; staff can inspect but cannot decide.
+- Added `tests/test_highlight_decisions.py` covering accept/reject transitions,
+  persistence, audit metadata, default and supplied reasons, reversal, RBAC,
+  clinic scope, patient visibility, and rejected-signal exclusion.

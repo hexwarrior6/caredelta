@@ -54,7 +54,7 @@ export type Highlight = {
   category: SignalCategory;
   risk_level: RiskLevel;
   risk_reason: string;
-  trust_status: "ai_suggested" | "clinician_confirmed" | "needs_review";
+  trust_status: "ai_suggested" | "clinician_confirmed" | "needs_review" | "rejected";
   importance_score: number;
   base_importance_score: number | null;
   learning_adjustment: number;
@@ -68,6 +68,10 @@ export type Highlight = {
   risk_floor_reason: string | null;
   abstained_from_glance: boolean;
   abstention_reason: string | null;
+  reviewed_by: string | null;
+  reviewed_by_role: UserRole | null;
+  reviewed_at: string | null;
+  review_reason: string | null;
   provenance_pointer: ProvenancePointer;
   created_at: string;
 };

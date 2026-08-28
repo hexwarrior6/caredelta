@@ -104,6 +104,11 @@ raw AI transcripts, AI-scribed notes, internal comments, unreviewed signals, and
 audit history are excluded. Staff cannot edit clinician sections, clinicians
 cannot overwrite staff notes, and cross-clinic access is rejected.
 
+Clinical highlight decisions form an explicit trust transition. Clinicians and
+admins accept a suggestion into `clinician_confirmed` or reject it out of both
+Glance and Review Queue. The reviewer, role, time, reason, and metadata-only
+audit event are persisted; confirmation never overrides source visibility.
+
 Confidence is operational rather than decorative. Extraction confidence means
 how clearly a source-backed fact was extracted; provenance confidence measures
 whether an entry and exact offsets resolve. Low extraction/provenance confidence
@@ -149,4 +154,3 @@ learning; add a staff note with an assigned clinician comment; edit and revert a
 clinician plan; review a conflict and an abstained candidate; then capture or
 upload consult audio and pass its editable transcript through redaction and the
 same source-backed ingestion pipeline.
-
