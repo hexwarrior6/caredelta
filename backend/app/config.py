@@ -28,6 +28,16 @@ class Settings(BaseSettings):
     deepseek_max_tokens: int = Field(
         default=1_200, validation_alias="DEEPSEEK_MAX_TOKENS", ge=200, le=8_000
     )
+    volcengine_asr_url: str = Field(
+        default="https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash",
+        validation_alias="VOLCENGINE_ASR_URL",
+    )
+    volcengine_api_key: str | None = Field(
+        default=None, validation_alias="VOLCENGINE_API_KEY"
+    )
+    volcengine_asr_timeout_seconds: float = Field(
+        default=45.0, validation_alias="VOLCENGINE_ASR_TIMEOUT_SECONDS", gt=0, le=120
+    )
     demo_auth_secret: str = Field(validation_alias="DEMO_AUTH_SECRET", min_length=32)
     allow_legacy_auth_headers: bool = Field(
         default=False, validation_alias="ALLOW_LEGACY_AUTH_HEADERS"

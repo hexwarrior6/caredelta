@@ -2,4 +2,5 @@ fastapi==0.116.1
 phonenumbers==9.0.37
 pydantic-settings==2.10.1
 pymongo==4.14.1
+python-multipart==0.0.20
 uvicorn[standard]==0.35.0

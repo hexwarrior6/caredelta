@@ -47,6 +47,8 @@ in control of what becomes trusted clinical memory.
   staff, clinician, and admin identities
 - A PHI-redacted patient AI assistant whose saved conversations can be promoted
   into source-backed patient-session timeline entries
+- Browser microphone/upload capture backed by Volcengine BigModel flash ASR,
+  feeding the same redaction, extraction, provenance, and review pipeline
 - Deterministic synthetic data for safe local development and demonstration
 
 Application runtimes persist patient records in MongoDB Atlas through
@@ -138,6 +140,15 @@ a timeline entry. At that point the existing ingest pipeline extracts candidate
 signals only from patient-authored statements, creates exact provenance
 pointers, and routes untrusted signals to care-team review; AI assistant wording
 is never treated as a patient clinical fact.
+
+All demo roles can also open **Capture consult** from the timeline. The browser
+can record microphone audio with `MediaRecorder` or upload an existing audio
+file (up to 15 MB). Audio is sent with the signed CareDelta session to the
+backend, which calls Volcengine BigModel flash ASR server-side; ASR credentials
+are never exposed to the browser. The returned transcript remains editable and
+must pass the existing redaction preview before DeepSeek/fallback extraction and
+timeline ingestion. Patient and staff interaction types are constrained by the
+backend to patient-session and nurse-consult flows respectively.
 
 ## API
 
@@ -309,6 +320,9 @@ Set these Railway variables without committing their values:
 - `CAREDELTA_FRONTEND_ORIGIN_REGEX` — optional, tightly scoped preview URL regex
 - `DEMO_AUTH_SECRET` — long random secret used to sign demo sessions
 - `ALLOW_LEGACY_AUTH_HEADERS` — keep `false` outside automated tests
+- `VOLCENGINE_API_KEY` — server-side Volcengine Speech API key
+- `VOLCENGINE_ASR_URL` — optional BigModel flash endpoint override
+- `VOLCENGINE_ASR_TIMEOUT_SECONDS` — optional; defaults to `45`
 
 Generate a public Railway domain after the deployment passes its health check.
 

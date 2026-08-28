@@ -6,6 +6,7 @@ from app.config import get_settings
 from app.repositories import MongoRepository
 from app.seed import build_seed_records
 from app.services.ai_ingest import DeepSeekAdapter, LLMAdapter
+from app.services.asr import ASRAdapter, VolcengineASRAdapter
 
 
 @lru_cache
@@ -43,6 +44,18 @@ def get_llm_adapter() -> LLMAdapter | None:
     )
 
 
+@lru_cache
+def get_asr_adapter() -> ASRAdapter | None:
+    settings = get_settings()
+    if not settings.volcengine_api_key:
+        return None
+    return VolcengineASRAdapter(
+        url=settings.volcengine_asr_url,
+        api_key=settings.volcengine_api_key,
+        timeout=settings.volcengine_asr_timeout_seconds,
+    )
+
+
 def initialize_repository() -> None:
     for record in build_seed_records():
         get_repository().initialize(record)
@@ -54,3 +67,4 @@ def close_repository() -> None:
     get_repository.cache_clear()
     get_mongo_client.cache_clear()
     get_llm_adapter.cache_clear()
+    get_asr_adapter.cache_clear()

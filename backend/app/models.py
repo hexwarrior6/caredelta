@@ -317,6 +317,13 @@ class AIRedactionPreviewResponse(BaseModel):
     warning: str | None = None
 
 
+class AudioTranscriptionResponse(BaseModel):
+    transcript: str
+    engine: Literal["volcengine_bigmodel_flash"]
+    filename: str
+    content_type: str
+
+
 class AIIngestRequest(BaseModel):
     transcript: str = Field(min_length=1, max_length=50_000)
     source_id: str = Field(min_length=1, max_length=160)
