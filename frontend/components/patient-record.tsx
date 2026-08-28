@@ -1107,7 +1107,7 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                           onClick={() => void transcribeAudio()}
                           className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-40"
                         >
-                          {isTranscribing ? "Transcribing…" : "Transcribe with Doubao"}
+                          {isTranscribing ? "Transcribing…" : "Transcribe"}
                         </button>
                       </div>
                       <p className="mt-2 truncate text-xs text-sky-800">

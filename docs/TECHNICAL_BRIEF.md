@@ -57,6 +57,11 @@ rollout checks; Atlas provides persistent records. CI uses neither credentials
 nor external services: pytest runs against `MemoryRepository`, and the frontend
 must lint and produce a production build.
 
+The production browser and API endpoints use HTTPS/TLS, and runtime records are
+stored in MongoDB Atlas with provider-managed encryption at rest. The prototype
+stores only synthetic records; raw consult audio is not retained after hosted
+transcription.
+
 ## 3. Data model and traceability
 
 ```text
@@ -92,11 +97,16 @@ write receives `409 Conflict`; reverting creates a new version rather than
 rewriting history. Separate entries can be edited concurrently without collision.
 Comments have independent resolve state so collaboration cannot overwrite notes.
 
-The deployed repository uses separate logical collections for users, patients,
-timeline entries, provenance, highlights, comments, tasks, versions, audit logs,
-interaction events, conflicts, and entry summaries. Patient/time, visibility,
-ranking/trust/category, unresolved comments/tasks, revision order, and conflict
-status are indexed for the demo's read patterns.
+The deployed repository uses one MongoDB patient-aggregate document per patient.
+Timeline entries, provenance-bearing highlights, comments, tasks, versions,
+audit logs, interaction events, conflicts, and patient-chat sessions are embedded
+collections inside that aggregate. This matches the prototype's access pattern:
+the complete role-filtered record is loaded together, while related writes such
+as AI entry + highlights + audit metadata use one atomic MongoDB document update.
+The collection is indexed by patient and clinic, with embedded entry and comment
+identifiers indexed for targeted updates. A production-scale version would split
+high-growth histories into dedicated collections while preserving the same IDs
+and source pointers.
 
 ## 4. Trust, privacy, and adaptive importance
 
@@ -140,6 +150,15 @@ do not decay. A production extension would create source-backed `EntrySummary`
 records and cold-store originals without deleting provenance or revision history.
 
 ## 5. Verification, trade-offs, and demo evidence
+
+The required warm-path latency was checked against the deployed production API
+on 28 August 2026. From a browser in Singapore, 25 sequential authenticated
+`GET /api/patients/patient-syn-001/record?page=1&page_size=3` requests were timed
+end to end after opening the application. All returned HTTP 200. Browser-side
+results were P50 124.5 ms and P95 223.1 ms (minimum 108.1 ms; maximum 1104.3 ms),
+meeting the <=300 ms warm-path target. The isolated maximum shows that cold
+network or service wake-up latency remains a deployment trade-off; no LLM or
+delta recomputation runs on the record-read path.
 
 The required micro-tests cover server-side RBAC, patient filtering, revision and
 revert behavior, metadata-only audit, resolvable highlight provenance, separate
