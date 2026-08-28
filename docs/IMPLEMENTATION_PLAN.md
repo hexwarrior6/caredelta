@@ -390,6 +390,7 @@ create_staff_note              no        yes     no          yes
 edit_staff_note                no        own     no          yes
 edit_clinician_section         no        no      yes         yes
 create_internal_comment        no        yes     yes         yes
+create_highlight               no        no      yes         yes
 accept_highlight               no        no      yes         yes
 reject_highlight               no        no      yes         yes
 pin_highlight                  no        no      yes         yes
@@ -750,3 +751,28 @@ Submission-readiness update (28 August 2026):
 - Added `tests/test_highlight_decisions.py` covering accept/reject transitions,
   persistence, audit metadata, default and supplied reasons, reversal, RBAC,
   clinic scope, patient visibility, and rejected-signal exclusion.
+
+### Phase 11: Manual Source-Span Highlighting
+
+- Added `POST /api/patients/{patient_id}/entries/{entry_id}/highlights` for
+  clinician/admin selection of an exact phrase inside an AI-scribed system entry.
+- The frontend captures the selected quote and character offsets, then shows a
+  compact floating Highlight action beside the browser selection, similar to a
+  translation plug-in selection menu. Only after the reviewer clicks that action
+  does the entry expand a form for longitudinal category, proposed risk, and a
+  short clinical reason. The created signal is clinician-confirmed immediately.
+- Browser offsets are treated as untrusted input. The backend checks bounds and
+  resolves the quote against the current stored entry before writing anything;
+  stale/tampered text and duplicate exact spans return `409 Conflict`.
+- Manual highlighting is restricted by a dedicated `create_highlight` action,
+  clinic scope, source-entry read permission, system authorship, and supported
+  AI entry types. Patient/staff roles and manual clinician/staff notes cannot use
+  this endpoint.
+- The chosen risk still passes through the Delta Engine, so deterministic safety
+  floors remain authoritative. The stored signal carries exact high-confidence
+  provenance, reviewer metadata, and a metadata-only audit event. Confirmation
+  does not bypass source visibility for patient responses.
+- MemoryRepository and MongoRepository insert the highlight and audit metadata
+  together and reject duplicate spans. `tests/test_manual_highlights.py` covers
+  exact resolution, risk floors, persistence, audit safety, RBAC, clinic scope,
+  stale offsets, source restrictions, duplicate handling, and patient filtering.

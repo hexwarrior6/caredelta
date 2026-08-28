@@ -11,11 +11,21 @@ import type {
   PatientRecord as PatientRecordData,
   PatientChatResponse,
   RiskLevel,
+  SignalCategory,
   TimelineEntry,
   UserRole,
   DemoSession,
   Version,
 } from "@/lib/types";
+
+type ManualTextSelection = {
+  entryId: string;
+  sourceQuote: string;
+  startOffset: number;
+  endOffset: number;
+  anchorX: number;
+  anchorY: number;
+};
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const categoryLabels: Record<string, string> = {
@@ -106,15 +116,45 @@ function TimelineContent({
 function ExpandableTimelineContent({
   entry,
   focusedPointer,
+  canCreateHighlight,
+  onTextSelected,
 }: {
   entry: TimelineEntry;
   focusedPointer: Highlight["provenance_pointer"] | null;
+  canCreateHighlight: boolean;
+  onTextSelected: (selection: ManualTextSelection) => void;
 }) {
   const contentRef = useRef<HTMLParagraphElement>(null);
   const [manuallyExpanded, setManuallyExpanded] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
   const focused = focusedPointer?.entry_id === entry.id;
   const expanded = manuallyExpanded || focused;
+
+  function captureSelection() {
+    if (!canCreateHighlight) return;
+    const element = contentRef.current;
+    const selection = window.getSelection();
+    if (!element || !selection || selection.rangeCount !== 1 || selection.isCollapsed) return;
+    const range = selection.getRangeAt(0);
+    if (!element.contains(range.commonAncestorContainer)) return;
+    const rawQuote = range.toString();
+    const sourceQuote = rawQuote.trim();
+    if (!sourceQuote || sourceQuote.length > 1_000) return;
+    const prefix = range.cloneRange();
+    prefix.selectNodeContents(element);
+    prefix.setEnd(range.startContainer, range.startOffset);
+    const leadingWhitespace = rawQuote.length - rawQuote.trimStart().length;
+    const startOffset = prefix.toString().length + leadingWhitespace;
+    const bounds = range.getBoundingClientRect();
+    onTextSelected({
+      entryId: entry.id,
+      sourceQuote,
+      startOffset,
+      endOffset: startOffset + sourceQuote.length,
+      anchorX: Math.min(Math.max(bounds.left + bounds.width / 2, 64), window.innerWidth - 64),
+      anchorY: Math.max(bounds.top - 10, 52),
+    });
+  }
 
   useEffect(() => {
     const element = contentRef.current;
@@ -131,6 +171,8 @@ function ExpandableTimelineContent({
       <div className="relative">
         <p
           ref={contentRef}
+          onMouseUp={captureSelection}
+          onTouchEnd={captureSelection}
           className={`whitespace-pre-wrap leading-7 text-slate-600 ${expanded ? "" : "max-h-48 overflow-hidden"}`}
         >
           <TimelineContent entry={entry} focusedPointer={focusedPointer} />
@@ -158,6 +200,11 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
   const [record, setRecord] = useState<PatientRecordData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focusedHighlight, setFocusedHighlight] = useState<Highlight | null>(null);
+  const [manualSelection, setManualSelection] = useState<ManualTextSelection | null>(null);
+  const [manualComposerOpen, setManualComposerOpen] = useState(false);
+  const [manualCategory, setManualCategory] = useState<SignalCategory>("new");
+  const [manualRisk, setManualRisk] = useState<RiskLevel>("medium");
+  const [manualRiskReason, setManualRiskReason] = useState("Clinically relevant phrase selected for follow-up.");
   const [noteTitle, setNoteTitle] = useState("");
   const [noteContent, setNoteContent] = useState("");
   const [showNoteComposer, setShowNoteComposer] = useState(false);
@@ -188,6 +235,17 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  useEffect(() => {
+    if (!manualSelection || manualComposerOpen) return;
+    const dismissFloatingAction = () => setManualSelection(null);
+    window.addEventListener("scroll", dismissFloatingAction, true);
+    window.addEventListener("resize", dismissFloatingAction);
+    return () => {
+      window.removeEventListener("scroll", dismissFloatingAction, true);
+      window.removeEventListener("resize", dismissFloatingAction);
+    };
+  }, [manualComposerOpen, manualSelection]);
 
   const authHeaders = useCallback(
     () => ({
@@ -575,6 +633,44 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
     } catch {}
   }
 
+  function selectManualHighlight(selection: ManualTextSelection) {
+    setManualSelection(selection);
+    setManualComposerOpen(false);
+    setManualCategory("new");
+    setManualRisk("medium");
+    setManualRiskReason("Clinically relevant phrase selected for follow-up.");
+  }
+
+  async function createManualHighlight(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!manualSelection) return;
+    setBusy(true);
+    setMutationError(null);
+    try {
+      const highlight = await postJson<Highlight>(
+        `/api/patients/${patientId}/entries/${manualSelection.entryId}/highlights`,
+        {
+          source_quote: manualSelection.sourceQuote,
+          start_offset: manualSelection.startOffset,
+          end_offset: manualSelection.endOffset,
+          category: manualCategory,
+          risk_level: manualRisk,
+          risk_reason: manualRiskReason,
+        },
+      );
+      setManualSelection(null);
+      setManualComposerOpen(false);
+      window.getSelection()?.removeAllRanges();
+      setHighlightPage(1);
+      await loadRecord(undefined, 1);
+      setFocusedHighlight(highlight);
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to create highlight");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function revealConflictSource(entryId: string) {
     setFocusedHighlight(null);
     requestAnimationFrame(() => {
@@ -629,6 +725,17 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
 
   return (
     <main className="min-h-screen pb-20">
+      {manualSelection && !manualComposerOpen && (
+        <button
+          type="button"
+          onClick={() => setManualComposerOpen(true)}
+          style={{ left: manualSelection.anchorX, top: manualSelection.anchorY }}
+          className="fixed z-50 -translate-x-1/2 -translate-y-full rounded-full border border-violet-300 bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xl shadow-violet-950/25 transition hover:-translate-y-[calc(100%+2px)] hover:bg-violet-800"
+          aria-label="Create highlight from selected text"
+        >
+          <span aria-hidden="true">✦</span> Highlight
+        </button>
+      )}
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
           <div className="flex items-center gap-3">
@@ -1110,7 +1217,48 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                       <ExpandableTimelineContent
                         entry={entry}
                         focusedPointer={focusedHighlight?.provenance_pointer ?? null}
+                        canCreateHighlight={
+                          (role === "clinician" || role === "admin")
+                          && entry.author_role === "system"
+                          && (entry.entry_type.startsWith("ai_") || entry.entry_type === "patient_session_summary")
+                        }
+                        onTextSelected={selectManualHighlight}
                       />
+                      {manualSelection?.entryId === entry.id && manualComposerOpen && (
+                        <form onSubmit={createManualHighlight} className="mt-4 rounded-xl border border-violet-200 bg-violet-50/70 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">Create highlight</p>
+                              <p className="mt-1 line-clamp-2 text-sm font-medium text-slate-800">“{manualSelection.sourceQuote}”</p>
+                              <p className="mt-1 font-mono text-[11px] text-slate-400">Exact source {manualSelection.startOffset}–{manualSelection.endOffset}</p>
+                            </div>
+                            <button type="button" onClick={() => { setManualSelection(null); setManualComposerOpen(false); }} className="text-xs font-semibold text-slate-500 hover:text-slate-800">Cancel</button>
+                          </div>
+                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            <label className="text-xs font-semibold text-slate-600">
+                              Category
+                              <select value={manualCategory} onChange={(event) => setManualCategory(event.target.value as SignalCategory)} className="mt-1.5 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-violet-500">
+                                {Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                              </select>
+                            </label>
+                            <label className="text-xs font-semibold text-slate-600">
+                              Risk
+                              <select value={manualRisk} onChange={(event) => setManualRisk(event.target.value as RiskLevel)} className="mt-1.5 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-violet-500">
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high">High</option>
+                              </select>
+                            </label>
+                          </div>
+                          <label className="mt-3 block text-xs font-semibold text-slate-600">
+                            Why this matters
+                            <input required maxLength={500} value={manualRiskReason} onChange={(event) => setManualRiskReason(event.target.value)} className="mt-1.5 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-violet-500" />
+                          </label>
+                          <div className="mt-3 flex justify-end">
+                            <button disabled={busy} className="rounded-lg bg-violet-700 px-4 py-2 text-xs font-semibold text-white hover:bg-violet-800 disabled:opacity-50">{busy ? "Creating…" : "Create confirmed highlight"}</button>
+                          </div>
+                        </form>
+                      )}
                       <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500">
                         <span>{entry.source_label}</span>
                         {isFocused && focusedHighlight && (

@@ -253,6 +253,15 @@ reason with a metadata-only audit event. Confirmation never bypasses source
 visibility: a patient can see a confirmed signal only when its source entry is
 already patient-visible.
 
+Clinicians and clinic admins can also select an exact phrase inside an AI-scribed
+timeline entry and create a confirmed manual highlight. The browser proposes the
+quote and character offsets, but the backend resolves them again against the
+stored source before accepting the highlight. The reviewer selects a longitudinal
+category and proposed risk, supplies a short reason, and the Delta Engine still
+applies deterministic risk floors. Duplicate spans, stale text, non-AI sources,
+and unauthorized roles are rejected. The resulting highlight stores high-
+confidence provenance and a metadata-only audit event.
+
 The radar learns conservatively from clinician behavior. Pins, comments, edits,
 and source highlights update one per-user net learning adjustment capped at
 +12; explicit “Less relevant” feedback subtracts from that same value, down to

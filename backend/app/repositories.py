@@ -34,6 +34,10 @@ class PatientRecordRepository(Protocol):
 
     def add_interaction_event(self, event: InteractionEvent) -> InteractionEvent: ...
 
+    def add_manual_highlight(
+        self, highlight: Highlight, audit_log: AuditLog
+    ) -> bool: ...
+
     def decide_highlight(
         self,
         patient_id: str,
@@ -108,6 +112,24 @@ class MemoryRepository:
     def add_interaction_event(self, event: InteractionEvent) -> InteractionEvent:
         self._records[event.patient_id].interaction_events.append(deepcopy(event))
         return deepcopy(event)
+
+    def add_manual_highlight(
+        self, highlight: Highlight, audit_log: AuditLog
+    ) -> bool:
+        record = self._records.get(highlight.patient_id)
+        if record is None:
+            return False
+        pointer = highlight.provenance_pointer
+        if any(
+            existing.provenance_pointer.entry_id == pointer.entry_id
+            and existing.provenance_pointer.start_offset == pointer.start_offset
+            and existing.provenance_pointer.end_offset == pointer.end_offset
+            for existing in record.highlights
+        ):
+            return False
+        record.highlights.insert(0, deepcopy(highlight))
+        record.audit_logs.append(deepcopy(audit_log))
+        return True
 
     def decide_highlight(
         self,
@@ -327,6 +349,35 @@ class MongoRepository:
         if result.matched_count == 0:
             raise KeyError(event.patient_id)
         return event.model_copy(deep=True)
+
+    def add_manual_highlight(
+        self, highlight: Highlight, audit_log: AuditLog
+    ) -> bool:
+        pointer = highlight.provenance_pointer
+        result = self._collection.update_one(
+            {
+                "patient.id": highlight.patient_id,
+                "highlights": {
+                    "$not": {
+                        "$elemMatch": {
+                            "provenance_pointer.entry_id": pointer.entry_id,
+                            "provenance_pointer.start_offset": pointer.start_offset,
+                            "provenance_pointer.end_offset": pointer.end_offset,
+                        }
+                    }
+                },
+            },
+            {
+                "$push": {
+                    "highlights": {
+                        "$each": [highlight.model_dump(mode="python")],
+                        "$position": 0,
+                    },
+                    "audit_logs": audit_log.model_dump(mode="python"),
+                }
+            },
+        )
+        return result.matched_count == 1
 
     def decide_highlight(
         self,

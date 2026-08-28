@@ -310,6 +310,15 @@ class HighlightDecisionRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
+class CreateManualHighlightRequest(BaseModel):
+    source_quote: str = Field(min_length=1, max_length=1_000)
+    start_offset: int = Field(ge=0)
+    end_offset: int = Field(gt=0)
+    category: SignalCategory
+    risk_level: RiskLevel
+    risk_reason: str = Field(min_length=1, max_length=500)
+
+
 AIInteractionType = Literal[
     "ai_doctor_consult_summary",
     "ai_nurse_consult_summary",

@@ -109,6 +109,12 @@ admins accept a suggestion into `clinician_confirmed` or reject it out of both
 Glance and Review Queue. The reviewer, role, time, reason, and metadata-only
 audit event are persisted; confirmation never overrides source visibility.
 
+Manual highlighting uses the same trust boundary. A clinician selects a phrase
+inside an AI-scribed entry, assigns category, risk, and reason, and creates an
+immediately confirmed signal. The API does not trust browser offsets: it resolves
+the exact quote against the stored entry, applies deterministic risk floors,
+rejects stale or duplicate spans, and persists provenance plus audit metadata.
+
 Confidence is operational rather than decorative. Extraction confidence means
 how clearly a source-backed fact was extracted; provenance confidence measures
 whether an entry and exact offsets resolve. Low extraction/provenance confidence
