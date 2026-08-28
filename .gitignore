@@ -19,6 +19,9 @@ out/
 build/
 dist/
 
+# local submission, recording, and working documents
+local_documents/
+
 # misc
 .DS_Store
 *.pem

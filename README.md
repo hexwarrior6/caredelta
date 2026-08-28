@@ -2,6 +2,10 @@
 
 **A source-backed clinical change radar for safer handoffs.**
 
+- **Live demo:** [caredelta-frontend.vercel.app](https://caredelta-frontend.vercel.app)
+- **Technical brief:** [`docs/TECHNICAL_BRIEF.md`](docs/TECHNICAL_BRIEF.md)
+- **External attribution:** [`ATTRIBUTION.txt`](ATTRIBUTION.txt)
+
 Clinical records are rich in detail but poor at showing change. Important
 symptoms, unresolved actions, contradictions, and patient context are often
 spread across dated notes written by different people. CareDelta turns that

@@ -462,6 +462,20 @@ README and technical brief stay consistent with the actual implementation.
 
 ## Implementation Status
 
+Submission-readiness update (28 August 2026):
+
+- Added the required 2–3 page-equivalent technical brief with architecture,
+  linked schema, trust model, first-principles decisions, and trade-offs.
+- Added `ATTRIBUTION.txt` for direct dependencies, hosted models/services,
+  licenses, and synthetic-data disclosure.
+- Added the explicitly named concurrent-edit micro-test covering independent
+  section updates and deterministic `409 Conflict` handling for stale writes.
+- Added a timed demo script that closes the scoring loop across glanceability,
+  provenance, collaboration, learning, conflict, patient safety, and voice.
+- Verified on 28 August 2026 that the development and production Railway health
+  endpoints and the Vercel frontend each returned HTTP 200. This is a point-in-
+  time availability check, not a substitute for recording the final demo video.
+
 ### Phase 1: Project Skeleton
 
 - Added a FastAPI application under `backend/` with `GET /health`.
