@@ -234,6 +234,9 @@ def test_redaction_preview_and_full_ingest_integration(
     highlight = result["highlights"][0]
     pointer = highlight["provenance_pointer"]
     assert entry["author_role"] == "system"
+    assert entry["source_pointer"]["source_type"] == "pasted_transcript"
+    assert entry["source_pointer"]["source_id"] == "session-integration-001"
+    assert entry["source_pointer"]["transcript_reference"] == f"timeline-entry:{entry['id']}"
     assert entry["content"][pointer["start_offset"] : pointer["end_offset"]] == pointer["source_quote"]
 
 

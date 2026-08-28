@@ -24,6 +24,7 @@ from app.models import (
     CreateCommentRequest,
     CreateEntryRequest,
     CreateInteractionRequest,
+    CreateManualHighlightRequest,
     PatientRecord,
     PatientChatIngestResponse,
     PatientChatMessage,
@@ -31,14 +32,19 @@ from app.models import (
     PatientChatResponse,
     PatientChatSession,
     Highlight,
+    HighlightDecisionRequest,
     InteractionEvent,
     ProvenanceConfidence,
     ProvenancePointer,
+    RiskLevel,
+    SignalCategory,
     RevertEntryRequest,
     TimelineEntry,
+    TimelineSourcePointer,
     UpdateEntryRequest,
     UpdateCommentStatusRequest,
     UserRole,
+    TrustStatus,
     Version,
     VisibilityScope,
 )
@@ -144,6 +150,7 @@ async def transcribe_consult_audio(
         engine="volcengine_bigmodel_flash",
         filename=audio.filename or "consult-audio",
         content_type=reported_content_type,
+        source_reference=f"audio-transcription-{uuid4()}",
     )
 
 
@@ -274,6 +281,8 @@ def ingest_patient_chat(
             transcript=transcript,
             source_id=session.id,
             interaction_type="ai_patient_session_summary",
+            source_kind="patient_chat_session",
+            source_reference=session.id,
         ),
         repository,
         adapter,
@@ -307,6 +316,15 @@ def ingest_ai_scribed_note(
             status_code=403,
             detail="Patients may ingest only their own patient-session conversations",
         )
+    if payload.source_kind == "patient_chat_session":
+        session_id = payload.source_reference or payload.source_id
+        if context.role != UserRole.PATIENT or session_id != payload.source_id or not any(
+            session.id == session_id for session in record.patient_chat_sessions
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Patient-chat provenance must resolve to the authenticated stored session",
+            )
 
     ingest_key = f"{payload.interaction_type}:{payload.source_id}"
     if any(
@@ -328,8 +346,48 @@ def ingest_ai_scribed_note(
         extraction_source = "\n".join(patient_lines) or redaction.text
     extraction, method, fallback_reason = extract_with_fallback(adapter, extraction_source)
     now = datetime.now(timezone.utc)
+    entry_id = f"entry-{uuid4()}"
+    source_label = f"{payload.interaction_type} · {payload.source_id}"
+    if payload.source_kind == "patient_chat_session":
+        source_pointer = TimelineSourcePointer(
+            source_type="patient_chat_session",
+            source_id=payload.source_id,
+            session_id=payload.source_reference or payload.source_id,
+            source_reference=payload.source_reference or payload.source_id,
+            transcript_reference=f"timeline-entry:{entry_id}",
+            original_available=True,
+            label="Patient AI conversation",
+        )
+        source_label = f"Patient AI session · {payload.source_id}"
+    elif payload.source_kind == "audio_transcript":
+        if not payload.source_reference or not payload.source_reference.startswith(
+            "audio-transcription-"
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Audio ingest requires a server-issued transcription reference",
+            )
+        source_pointer = TimelineSourcePointer(
+            source_type="audio_transcript",
+            source_id=payload.source_id,
+            source_reference=payload.source_reference,
+            transcript_reference=f"timeline-entry:{entry_id}",
+            original_available=False,
+            label="Voice transcript (original audio not retained)",
+        )
+        source_label = f"Voice transcript · {payload.source_reference}"
+    else:
+        source_pointer = TimelineSourcePointer(
+            source_type="pasted_transcript",
+            source_id=payload.source_id,
+            source_reference=f"ingest-source:{payload.source_id}",
+            transcript_reference=f"timeline-entry:{entry_id}",
+            original_available=False,
+            label="Submitted transcript",
+        )
+
     entry = TimelineEntry(
-        id=f"entry-{uuid4()}",
+        id=entry_id,
         patient_id=patient_id,
         clinic_id=record.patient.clinic_id,
         author_role=AuthorRole.SYSTEM,
@@ -349,7 +407,8 @@ def ingest_ai_scribed_note(
             else VisibilityScope.CLINICIAN
         ),
         version=1,
-        source_label=f"{payload.interaction_type} · {payload.source_id}",
+        source_label=source_label,
+        source_pointer=source_pointer,
     )
     highlights: list[Highlight] = []
     for signal in extraction.signals:
@@ -481,6 +540,190 @@ def create_highlight_interaction(
         created_at=datetime.now(timezone.utc),
     )
     return repository.add_interaction_event(event)
+
+
+@router.post(
+    "/{patient_id}/highlights/{highlight_id}/decision",
+    response_model=Highlight,
+)
+def decide_highlight(
+    patient_id: str,
+    highlight_id: str,
+    payload: HighlightDecisionRequest,
+    repository: Annotated[PatientRecordRepository, Depends(get_repository)],
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+) -> Highlight:
+    record = repository.get_patient_record(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+    require_clinic_scope(context, record.patient.clinic_id)
+    action = (
+        Action.ACCEPT_HIGHLIGHT
+        if payload.decision == "accept"
+        else Action.REJECT_HIGHLIGHT
+    )
+    require_action(context, action)
+    highlight = next((item for item in record.highlights if item.id == highlight_id), None)
+    if highlight is None:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+    source_entry = next(
+        (
+            item
+            for item in record.timeline_entries
+            if item.id == highlight.provenance_pointer.entry_id
+        ),
+        None,
+    )
+    if source_entry is None:
+        raise HTTPException(status_code=409, detail="Highlight source is unavailable")
+    require_action(context, entry_action(source_entry))
+
+    now = datetime.now(timezone.utc)
+    accepted = payload.decision == "accept"
+    trust_status = (
+        TrustStatus.CLINICIAN_CONFIRMED if accepted else TrustStatus.REJECTED
+    )
+    reason = (payload.reason or "").strip() or (
+        "Accepted after clinical source review."
+        if accepted
+        else "Rejected after clinical source review."
+    )
+    audit_log = AuditLog(
+        id=f"audit-{uuid4()}",
+        patient_id=patient_id,
+        actor_id=context.actor_id,
+        actor_role=AuthorRole(context.role.value),
+        action="accept_highlight" if accepted else "reject_highlight",
+        entity_type="highlight",
+        entity_id=highlight_id,
+        changed_fields=[
+            "trust_status",
+            "reviewed_by",
+            "reviewed_by_role",
+            "reviewed_at",
+            "review_reason",
+        ],
+        created_at=now,
+        request_id=f"request-{uuid4()}",
+    )
+    updated = repository.decide_highlight(
+        patient_id,
+        highlight_id,
+        trust_status,
+        context.actor_id,
+        context.role,
+        now,
+        reason,
+        audit_log,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+    return updated
+
+
+@router.post(
+    "/{patient_id}/entries/{entry_id}/highlights",
+    response_model=Highlight,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_manual_highlight(
+    patient_id: str,
+    entry_id: str,
+    payload: CreateManualHighlightRequest,
+    repository: Annotated[PatientRecordRepository, Depends(get_repository)],
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+) -> Highlight:
+    record = repository.get_patient_record(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+    require_clinic_scope(context, record.patient.clinic_id)
+    require_action(context, Action.CREATE_HIGHLIGHT)
+    entry = next((item for item in record.timeline_entries if item.id == entry_id), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Timeline entry not found")
+    require_action(context, entry_action(entry))
+    if entry.author_role != AuthorRole.SYSTEM or not (
+        entry.entry_type.startswith("ai_")
+        or entry.entry_type == "patient_session_summary"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Manual highlights can be created only from AI-scribed entries",
+        )
+    if payload.start_offset >= payload.end_offset or payload.end_offset > len(entry.content):
+        raise HTTPException(status_code=400, detail="Selected source offsets are invalid")
+    resolved_quote = entry.content[payload.start_offset : payload.end_offset]
+    if resolved_quote != payload.source_quote:
+        raise HTTPException(
+            status_code=409,
+            detail="Selected text no longer matches the stored source",
+        )
+
+    evaluation = evaluate_signal(
+        text=payload.source_quote,
+        category=SignalCategory(payload.category),
+        proposed_risk=RiskLevel(payload.risk_level),
+        extraction_confidence="high",
+        provenance_confidence=ProvenanceConfidence.HIGH,
+    )
+    now = datetime.now(timezone.utc)
+    highlight = Highlight(
+        id=f"highlight-{uuid4()}",
+        patient_id=patient_id,
+        text=payload.source_quote,
+        category=payload.category,
+        risk_level=evaluation.risk_level,
+        risk_reason=payload.risk_reason,
+        trust_status=TrustStatus.CLINICIAN_CONFIRMED,
+        importance_score=evaluation.importance_score,
+        extraction_confidence="high",
+        confidence_reason="Exact phrase manually selected and confirmed by a clinical reviewer.",
+        importance_reason=evaluation.importance_reason,
+        risk_floor_applied=evaluation.risk_floor_applied,
+        risk_floor_reason=evaluation.risk_floor_reason,
+        abstained_from_glance=False,
+        abstention_reason=None,
+        reviewed_by=context.actor_id,
+        reviewed_by_role=context.role,
+        reviewed_at=now,
+        review_reason="Created from an exact manual source selection.",
+        provenance_pointer=ProvenancePointer(
+            id=f"provenance-{uuid4()}",
+            patient_id=patient_id,
+            entry_id=entry.id,
+            source_type="manual_selection",
+            source_id=entry.id,
+            source_quote=payload.source_quote,
+            start_offset=payload.start_offset,
+            end_offset=payload.end_offset,
+            offset_confidence=ProvenanceConfidence.HIGH,
+        ),
+        created_at=now,
+    )
+    audit_log = AuditLog(
+        id=f"audit-{uuid4()}",
+        patient_id=patient_id,
+        actor_id=context.actor_id,
+        actor_role=AuthorRole(context.role.value),
+        action="create_manual_highlight",
+        entity_type="highlight",
+        entity_id=highlight.id,
+        changed_fields=[
+            "highlight",
+            "category",
+            "risk_level",
+            "trust_status",
+            "provenance_pointer",
+        ],
+        created_at=now,
+        request_id=f"request-{uuid4()}",
+    )
+    if not repository.add_manual_highlight(highlight, audit_log):
+        raise HTTPException(
+            status_code=409,
+            detail="This exact source span is already highlighted",
+        )
+    return highlight
 
 
 def require_entry_edit(context: AuthContext, entry: TimelineEntry) -> None:

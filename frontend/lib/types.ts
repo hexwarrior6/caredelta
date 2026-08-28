@@ -54,7 +54,7 @@ export type Highlight = {
   category: SignalCategory;
   risk_level: RiskLevel;
   risk_reason: string;
-  trust_status: "ai_suggested" | "clinician_confirmed" | "needs_review";
+  trust_status: "ai_suggested" | "clinician_confirmed" | "needs_review" | "rejected";
   importance_score: number;
   base_importance_score: number | null;
   learning_adjustment: number;
@@ -68,6 +68,10 @@ export type Highlight = {
   risk_floor_reason: string | null;
   abstained_from_glance: boolean;
   abstention_reason: string | null;
+  reviewed_by: string | null;
+  reviewed_by_role: UserRole | null;
+  reviewed_at: string | null;
+  review_reason: string | null;
   provenance_pointer: ProvenancePointer;
   created_at: string;
 };
@@ -83,6 +87,20 @@ export type TimelineEntry = {
   content: string;
   version: number;
   source_label: string;
+  source_pointer: {
+    source_type:
+      | "manual_note"
+      | "synthetic_transcript"
+      | "pasted_transcript"
+      | "audio_transcript"
+      | "patient_chat_session";
+    source_id: string;
+    session_id: string | null;
+    source_reference: string | null;
+    transcript_reference: string;
+    original_available: boolean;
+    label: string;
+  } | null;
 };
 
 export type PatientChatMessage = {
@@ -181,6 +199,7 @@ export type AudioTranscriptionResult = {
   engine: "volcengine_bigmodel_flash";
   filename: string;
   content_type: string;
+  source_reference: string;
 };
 
 export type AIIngestResult = {

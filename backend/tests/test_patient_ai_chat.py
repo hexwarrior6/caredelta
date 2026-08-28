@@ -72,6 +72,11 @@ def test_patient_chat_is_redacted_saved_and_ingested(isolated_services) -> None:
     result = ingest.json()
     assert result["entry"]["author_role"] == "system"
     assert result["entry"]["entry_type"] == "patient_session_summary"
+    source_pointer = result["entry"]["source_pointer"]
+    assert source_pointer["source_type"] == "patient_chat_session"
+    assert source_pointer["source_id"] == session_id
+    assert source_pointer["session_id"] == session_id
+    assert source_pointer["original_available"] is True
     assert result["highlights"]
     assert all(item["provenance_pointer"]["entry_id"] == result["entry"]["id"] for item in result["highlights"])
 

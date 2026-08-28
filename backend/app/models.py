@@ -45,6 +45,7 @@ class TrustStatus(StrEnum):
     AI_SUGGESTED = "ai_suggested"
     CLINICIAN_CONFIRMED = "clinician_confirmed"
     NEEDS_REVIEW = "needs_review"
+    REJECTED = "rejected"
 
 
 class ProvenanceConfidence(StrEnum):
@@ -72,6 +73,22 @@ class Patient(BaseModel):
     last_visit_at: datetime
 
 
+class TimelineSourcePointer(BaseModel):
+    source_type: Literal[
+        "manual_note",
+        "synthetic_transcript",
+        "pasted_transcript",
+        "audio_transcript",
+        "patient_chat_session",
+    ]
+    source_id: str
+    session_id: str | None = None
+    source_reference: str | None = None
+    transcript_reference: str
+    original_available: bool = False
+    label: str
+
+
 class TimelineEntry(BaseModel):
     id: str
     patient_id: str
@@ -86,6 +103,7 @@ class TimelineEntry(BaseModel):
     visibility_scope: VisibilityScope
     version: int = Field(ge=1)
     source_label: str
+    source_pointer: TimelineSourcePointer | None = None
 
 
 class ProvenancePointer(BaseModel):
@@ -121,6 +139,10 @@ class Highlight(BaseModel):
     risk_floor_reason: str | None = None
     abstained_from_glance: bool = False
     abstention_reason: str | None = None
+    reviewed_by: str | None = None
+    reviewed_by_role: UserRole | None = None
+    reviewed_at: datetime | None = None
+    review_reason: str | None = None
     provenance_pointer: ProvenancePointer
     created_at: datetime
 
@@ -300,6 +322,20 @@ class CreateInteractionRequest(BaseModel):
     event_type: Literal["pin", "highlight", "less_relevant"]
 
 
+class HighlightDecisionRequest(BaseModel):
+    decision: Literal["accept", "reject"]
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class CreateManualHighlightRequest(BaseModel):
+    source_quote: str = Field(min_length=1, max_length=1_000)
+    start_offset: int = Field(ge=0)
+    end_offset: int = Field(gt=0)
+    category: SignalCategory
+    risk_level: RiskLevel
+    risk_reason: str = Field(min_length=1, max_length=500)
+
+
 AIInteractionType = Literal[
     "ai_doctor_consult_summary",
     "ai_nurse_consult_summary",
@@ -322,12 +358,17 @@ class AudioTranscriptionResponse(BaseModel):
     engine: Literal["volcengine_bigmodel_flash"]
     filename: str
     content_type: str
+    source_reference: str
 
 
 class AIIngestRequest(BaseModel):
     transcript: str = Field(min_length=1, max_length=50_000)
     source_id: str = Field(min_length=1, max_length=160)
     interaction_type: AIInteractionType
+    source_kind: Literal[
+        "pasted_transcript", "audio_transcript", "patient_chat_session"
+    ] = "pasted_transcript"
+    source_reference: str | None = Field(default=None, max_length=200)
 
 
 class AIIngestResponse(BaseModel):

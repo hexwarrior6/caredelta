@@ -390,6 +390,7 @@ create_staff_note              no        yes     no          yes
 edit_staff_note                no        own     no          yes
 edit_clinician_section         no        no      yes         yes
 create_internal_comment        no        yes     yes         yes
+create_highlight               no        no      yes         yes
 accept_highlight               no        no      yes         yes
 reject_highlight               no        no      yes         yes
 pin_highlight                  no        no      yes         yes
@@ -461,6 +462,20 @@ change discussed during the build should be added to this document so the final
 README and technical brief stay consistent with the actual implementation.
 
 ## Implementation Status
+
+Submission-readiness update (28 August 2026):
+
+- Added the required 2–3 page-equivalent technical brief with architecture,
+  linked schema, trust model, first-principles decisions, and trade-offs.
+- Added `ATTRIBUTION.txt` for direct dependencies, hosted models/services,
+  licenses, and synthetic-data disclosure.
+- Added the explicitly named concurrent-edit micro-test covering independent
+  section updates and deterministic `409 Conflict` handling for stale writes.
+- Added a timed demo script that closes the scoring loop across glanceability,
+  provenance, collaboration, learning, conflict, patient safety, and voice.
+- Verified on 28 August 2026 that the development and production Railway health
+  endpoints and the Vercel frontend each returned HTTP 200. This is a point-in-
+  time availability check, not a substitute for recording the final demo video.
 
 ### Phase 1: Project Skeleton
 
@@ -711,3 +726,77 @@ README and technical brief stay consistent with the actual implementation.
 - `tests/test_self_learning_importance.py` proves the boost cap, prior-pin
   explanation, safety non-degradation, historical decay, all four interaction
   event types, and two-source allergy/medication/task conflict creation.
+
+### Phase 10: Clinical Highlight Decisions
+
+- Added `POST /api/patients/{patient_id}/highlights/{highlight_id}/decision`
+  with `accept` and `reject` decisions. Only clinicians and clinic-scoped admins
+  pass the existing `accept_highlight` / `reject_highlight` server actions.
+- Accept transitions the signal to `clinician_confirmed` and clears automatic
+  abstention. Reject transitions it to `rejected`, excludes it from both Glance
+  and Review Queue, and retains the source-backed record for auditability.
+- Both MemoryRepository and MongoRepository persist reviewer ID, reviewer role,
+  review timestamp, reason, and a metadata-only audit event in the same write.
+  A later authorized review may reverse an earlier decision without deleting
+  the prior audit event.
+- Source visibility remains an independent safety gate. Confirmation allows a
+  patient to see a signal only when its source entry is already patient-visible;
+  accepting a raw clinician or AI note never exposes that note or its highlight.
+- The Glance card keeps one concise action row with Source, Accept/Confirmed,
+  and Reject controls for clinicians/admins. Pin and Reduce were removed from
+  this primary clinical surface so ranking feedback does not compete visually
+  with the required trust decision. The care-team Review Queue provides direct
+  source inspection plus fast Accept/Reject actions; staff can inspect but
+  cannot decide.
+- Added `tests/test_highlight_decisions.py` covering accept/reject transitions,
+  persistence, audit metadata, default and supplied reasons, reversal, RBAC,
+  clinic scope, patient visibility, and rejected-signal exclusion.
+
+### Phase 11: Manual Source-Span Highlighting
+
+- Added `POST /api/patients/{patient_id}/entries/{entry_id}/highlights` for
+  clinician/admin selection of an exact phrase inside an AI-scribed system entry.
+- The frontend captures the selected quote and character offsets, then shows a
+  compact floating Highlight action beside the browser selection, similar to a
+  translation plug-in selection menu. Only after the reviewer clicks that action
+  does the entry expand a form for longitudinal category, proposed risk, and a
+  short clinical reason. The created signal is clinician-confirmed immediately.
+- Browser offsets are treated as untrusted input. The backend checks bounds and
+  resolves the quote against the current stored entry before writing anything;
+  stale/tampered text and duplicate exact spans return `409 Conflict`.
+- Manual highlighting is restricted by a dedicated `create_highlight` action,
+  clinic scope, source-entry read permission, system authorship, and supported
+  AI entry types. Patient/staff roles and manual clinician/staff notes cannot use
+  this endpoint.
+- The chosen risk still passes through the Delta Engine, so deterministic safety
+  floors remain authoritative. The stored signal carries exact high-confidence
+  provenance, reviewer metadata, and a metadata-only audit event. Confirmation
+  does not bypass source visibility for patient responses.
+- MemoryRepository and MongoRepository insert the highlight and audit metadata
+  together and reject duplicate spans. `tests/test_manual_highlights.py` covers
+  exact resolution, risk floors, persistence, audit safety, RBAC, clinic scope,
+  stale offsets, source restrictions, duplicate handling, and patient filtering.
+
+### Phase 12: Timeline Entry Source Provenance
+
+- Added a structured optional `TimelineSourcePointer` to `TimelineEntry` with
+  source type/ID, optional session and source reference, retained transcript
+  reference, original-availability flag, and a concise label. The legacy
+  `source_label` remains for backward compatibility with existing Atlas records.
+- Normal submitted text creates a `pasted_transcript` pointer to the controlled,
+  redacted timeline transcript. AI Patient Chat promotion creates a
+  `patient_chat_session` pointer that resolves to the authenticated stored chat
+  session. The timeline UI can navigate a patient directly back to that session.
+- Audio transcription now returns an opaque server-issued reference. When the
+  editable transcript is ingested, the entry records an `audio_transcript`
+  pointer with that reference and explicitly sets `original_available=false`;
+  raw audio is not persisted or exposed, and the retained redacted transcript is
+  the source used for provenance.
+- The UI replaces opaque source-label text with a structured Source Details
+  control showing IDs, session/reference, transcript pointer, source type, and
+  original-retention status. Role filtering of the entry remains authoritative,
+  so the pointer cannot leak a hidden transcript or session.
+- Added regression coverage for pasted pointers, Patient Chat session linkage,
+  server-issued audio references, voice-source retention semantics, and rejection
+  of an invalid audio reference. Existing highlight span provenance remains
+  independent and still resolves to exact TimelineEntry text.

@@ -2,6 +2,10 @@
 
 **A source-backed clinical change radar for safer handoffs.**
 
+- **Live demo:** [caredelta-frontend.vercel.app](https://caredelta-frontend.vercel.app)
+- **Technical brief:** [`docs/TECHNICAL_BRIEF.md`](docs/TECHNICAL_BRIEF.md)
+- **External attribution:** [`ATTRIBUTION.txt`](ATTRIBUTION.txt)
+
 Clinical records are rich in detail but poor at showing change. Important
 symptoms, unresolved actions, contradictions, and patient context are often
 spread across dated notes written by different people. CareDelta turns that
@@ -180,6 +184,15 @@ source quote, character offsets, source metadata, and a high/medium/low
 confidence value. The frontend uses this pointer to scroll from the glance card
 to the supporting timeline entry and mark the exact span.
 
+AI-scribed timeline entries also carry their own structured `source_pointer`,
+separate from highlight provenance. It records source type and ID, an optional
+session/reference, the retained transcript reference, whether the original is
+available, and a human-readable label. Patient-chat entries can navigate back to
+the stored conversation. Voice transcription returns a server-issued reference;
+the resulting entry retains that reference while explicitly recording that raw
+audio is not stored. Pasted transcripts point to the controlled redacted timeline
+entry rather than implying an unavailable original source.
+
 Staff, clinician, and admin views can create role-appropriate notes and internal
 comments through the timeline. Comment status is updated independently from the
 source note so collaboration never overwrites clinical content.
@@ -240,6 +253,23 @@ risk floors and recomputes importance from risk, category, and extraction
 confidence. Low-confidence or conflicting signals abstain from the glance card
 and remain source-backed in a clinician review queue, with plain-language
 explanations for risk, confidence, and ranking.
+
+Clinicians and clinic admins can accept or reject suggestions from either the
+glance card or review queue. Accepting records a named clinical review and moves
+the signal to `clinician_confirmed`; rejecting removes it from both the glance
+card and review queue. Every decision persists reviewer, role, timestamp, and
+reason with a metadata-only audit event. Confirmation never bypasses source
+visibility: a patient can see a confirmed signal only when its source entry is
+already patient-visible.
+
+Clinicians and clinic admins can also select an exact phrase inside an AI-scribed
+timeline entry and create a confirmed manual highlight. The browser proposes the
+quote and character offsets, but the backend resolves them again against the
+stored source before accepting the highlight. The reviewer selects a longitudinal
+category and proposed risk, supplies a short reason, and the Delta Engine still
+applies deterministic risk floors. Duplicate spans, stale text, non-AI sources,
+and unauthorized roles are rejected. The resulting highlight stores high-
+confidence provenance and a metadata-only audit event.
 
 The radar learns conservatively from clinician behavior. Pins, comments, edits,
 and source highlights update one per-user net learning adjustment capped at

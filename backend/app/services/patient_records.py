@@ -81,8 +81,11 @@ def filter_patient_record(
         [
             highlight
             for highlight in visible_highlights
-            if highlight.abstained_from_glance
-            or highlight.trust_status.value == "needs_review"
+            if highlight.trust_status.value != "rejected"
+            and (
+                highlight.abstained_from_glance
+                or highlight.trust_status.value == "needs_review"
+            )
         ]
         if context.role.value != "patient"
         else []

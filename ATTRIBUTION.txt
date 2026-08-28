@@ -1,0 +1,46 @@
+CareDelta external libraries, services, and models
+Last updated: 28 August 2026
+
+Application dependencies
+
+- FastAPI 0.116.1 — MIT License — https://github.com/fastapi/fastapi
+- Uvicorn 0.35.0 — BSD 3-Clause License — https://github.com/encode/uvicorn
+- Pydantic Settings 2.10.1 — MIT License — https://github.com/pydantic/pydantic-settings
+- PyMongo 4.14.1 — Apache License 2.0 — https://github.com/mongodb/mongo-python-driver
+- phonenumbers 9.0.37 — Apache License 2.0 — https://github.com/daviddrysdale/python-phonenumbers
+- python-multipart 0.0.20 — Apache License 2.0 — https://github.com/Kludex/python-multipart
+- Next.js 16.3.3 — MIT License — https://github.com/vercel/next.js
+- React and React DOM 19.1.1 — MIT License — https://github.com/facebook/react
+- Tailwind CSS 4.1.12 — MIT License — https://github.com/tailwindlabs/tailwindcss
+
+Development and test dependencies
+
+- pytest 8.4.1 — MIT License — https://github.com/pytest-dev/pytest
+- HTTPX 0.28.1 — BSD 3-Clause License — https://github.com/encode/httpx
+- TypeScript 5.9.2 — Apache License 2.0 — https://github.com/microsoft/TypeScript
+- ESLint 9.39.5 — MIT License — https://github.com/eslint/eslint
+- eslint-config-next 16.3.3 — MIT License — https://github.com/vercel/next.js
+
+External models and hosted services
+
+- DeepSeek API, model configured as deepseek-v4-flash — proprietary hosted model;
+  use is governed by DeepSeek's current terms of use. CareDelta sends only
+  locally redacted text and falls back to deterministic extraction on failure.
+- Volcengine BigModel Speech Recognition flash API — proprietary hosted service;
+  use is governed by Volcengine's current service terms. Audio is sent
+  server-side for transcription and the transcript is editable before ingest.
+- MongoDB Atlas — hosted database service; MongoDB server licensing and Atlas
+  service terms apply.
+- Railway — backend hosting platform; Railway service terms apply.
+- Vercel — frontend hosting platform; Vercel service terms apply.
+
+Project code and synthetic data
+
+- CareDelta source code is released under the repository MIT License.
+- All demonstration patients, identities, notes, transcripts, and clinical
+  events are synthetic. No third-party clinical dataset is bundled.
+
+Transitive dependencies are recorded in frontend/package-lock.json and the
+installed Python dependency graph. No external source code, image, audio, or
+clinical dataset is copied into this repository beyond ordinary dependencies.
+
