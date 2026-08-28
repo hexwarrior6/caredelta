@@ -739,13 +739,13 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                     <p><span className="font-semibold text-teal-200">Data decay {highlight.decay_adjustment}:</span> {highlight.decay_reason}</p>
                   )}
                 </div>
-                <div className={`mt-5 grid gap-2 ${(role === "clinician" || role === "admin") ? "grid-cols-2" : "grid-cols-1"}`}>
+                <div className={`mt-5 grid gap-2 ${(role === "clinician" || role === "admin") ? "grid-cols-3" : "grid-cols-1"}`}>
                   <button
                     type="button"
                     onClick={() => revealSource(highlight)}
-                    className={`${(role === "clinician" || role === "admin") ? "col-span-2" : ""} min-w-0 rounded-lg border border-white/20 px-2.5 py-1.5 text-xs font-semibold text-teal-200 hover:bg-white/10 hover:text-white`}
+                    className="min-w-0 rounded-lg border border-white/20 px-2 py-1.5 text-xs font-semibold text-teal-200 hover:bg-white/10 hover:text-white"
                   >
-                    Source ↓
+                    Source
                   </button>
                   {(role === "clinician" || role === "admin") && (
                     <>
@@ -770,22 +770,6 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                         className="rounded-lg border border-rose-300/50 bg-rose-300/10 px-2 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-300/20 disabled:opacity-50"
                       >
                         Reject
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void recordHighlightInteraction(highlight, "pin")}
-                        className="rounded-lg border border-teal-300/50 bg-teal-300/10 px-2 py-1.5 text-xs font-semibold text-teal-100 hover:bg-teal-300/20 disabled:opacity-50"
-                      >
-                        Pin <span className="font-mono">+4</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void recordHighlightInteraction(highlight, "less_relevant")}
-                        className="rounded-lg border border-amber-300/50 bg-amber-300/10 px-2 py-1.5 text-xs font-semibold text-amber-200 hover:bg-amber-300/20 disabled:opacity-50"
-                      >
-                        Reduce <span className="font-mono">−2</span>
                       </button>
                     </>
                   )}

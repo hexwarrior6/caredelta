@@ -149,8 +149,9 @@ keeps failures visible and the safety behavior easy to inspect within 72 hours.
 
 The judging story is a closed trust loop: open the Glance View in under ten
 seconds; click an AI-derived signal to its exact source; inspect its risk,
-confidence, ranking, and trust reasons; pin or reject it and observe bounded
-learning; add a staff note with an assigned clinician comment; edit and revert a
+confidence, ranking, and trust reasons; accept or reject it and explain how
+source views, comments, and edits create bounded learning signals; add a staff
+note with an assigned clinician comment; edit and revert a
 clinician plan; review a conflict and an abstained candidate; then capture or
 upload consult audio and pass its editable transcript through redaction and the
 same source-backed ingestion pipeline.

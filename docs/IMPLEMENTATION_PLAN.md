@@ -741,9 +741,12 @@ Submission-readiness update (28 August 2026):
 - Source visibility remains an independent safety gate. Confirmation allows a
   patient to see a signal only when its source entry is already patient-visible;
   accepting a raw clinician or AI note never exposes that note or its highlight.
-- The Glance card now provides Accept, Reject, Pin, and Reduce controls for
-  clinicians/admins. The care-team Review Queue provides direct source inspection
-  plus fast Accept/Reject actions; staff can inspect but cannot decide.
+- The Glance card keeps one concise action row with Source, Accept/Confirmed,
+  and Reject controls for clinicians/admins. Pin and Reduce were removed from
+  this primary clinical surface so ranking feedback does not compete visually
+  with the required trust decision. The care-team Review Queue provides direct
+  source inspection plus fast Accept/Reject actions; staff can inspect but
+  cannot decide.
 - Added `tests/test_highlight_decisions.py` covering accept/reject transitions,
   persistence, audit metadata, default and supplied reasons, reversal, RBAC,
   clinic scope, patient visibility, and rejected-signal exclusion.
