@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
 from app.auth import (
     Action,
@@ -10,13 +10,14 @@ from app.auth import (
     require_action,
     require_clinic_scope,
 )
-from app.dependencies import get_llm_adapter, get_repository
+from app.dependencies import get_asr_adapter, get_llm_adapter, get_repository
 from app.models import (
     AuditLog,
     AIIngestRequest,
     AIIngestResponse,
     AIRedactionPreviewRequest,
     AIRedactionPreviewResponse,
+    AudioTranscriptionResponse,
     AuthContext,
     AuthorRole,
     Comment,
@@ -44,10 +45,39 @@ from app.models import (
 from app.repositories import PatientRecordRepository, VersionConflictError
 from app.services.patient_records import entry_action, filter_patient_record
 from app.services.ai_ingest import LLMAdapter, extract_with_fallback, redact_phi
+from app.services.asr import ASRAdapter
 from app.services.delta_engine import evaluate_signal
 from app.services.conflict_detection import detect_conflicts
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
+
+MAX_AUDIO_BYTES = 15 * 1024 * 1024
+SUPPORTED_AUDIO_TYPES = {
+    "audio/aac",
+    "audio/m4a",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/ogg",
+    "audio/vnd.wave",
+    "audio/wav",
+    "audio/webm",
+    "audio/x-m4a",
+    "audio/x-wav",
+    "video/mp4",
+}
+AUDIO_FORMATS = {
+    "audio/aac": "aac",
+    "audio/m4a": "m4a",
+    "audio/mp4": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/ogg": "ogg",
+    "audio/vnd.wave": "wav",
+    "audio/wav": "wav",
+    "audio/webm": "ogg",
+    "audio/x-m4a": "m4a",
+    "audio/x-wav": "wav",
+    "video/mp4": "m4a",
+}
 
 
 def record_entry_interactions(
@@ -76,6 +106,45 @@ def record_entry_interactions(
                 created_at=datetime.now(timezone.utc),
             )
         )
+
+
+@router.post(
+    "/{patient_id}/audio-transcription",
+    response_model=AudioTranscriptionResponse,
+)
+async def transcribe_consult_audio(
+    patient_id: str,
+    audio: Annotated[UploadFile, File(...)],
+    repository: Annotated[PatientRecordRepository, Depends(get_repository)],
+    adapter: Annotated[ASRAdapter | None, Depends(get_asr_adapter)],
+    context: Annotated[AuthContext, Depends(get_auth_context)],
+) -> AudioTranscriptionResponse:
+    record = repository.get_patient_record(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Patient record not found")
+    require_clinic_scope(context, record.patient.clinic_id)
+    require_action(context, Action.TRANSCRIBE_AUDIO)
+    if adapter is None:
+        raise HTTPException(status_code=503, detail="Volcengine speech recognition is unavailable")
+    reported_content_type = (audio.content_type or "").lower()
+    content_type = reported_content_type.split(";", 1)[0].strip()
+    if content_type not in SUPPORTED_AUDIO_TYPES:
+        raise HTTPException(status_code=415, detail="Unsupported audio format")
+    content = await audio.read(MAX_AUDIO_BYTES + 1)
+    if not content:
+        raise HTTPException(status_code=400, detail="Audio file is empty")
+    if len(content) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="Audio file exceeds the 15 MB limit")
+    try:
+        transcript = adapter.transcribe(content, AUDIO_FORMATS[content_type])
+    except Exception as error:
+        raise HTTPException(status_code=502, detail="Speech recognition failed") from error
+    return AudioTranscriptionResponse(
+        transcript=transcript,
+        engine="volcengine_bigmodel_flash",
+        filename=audio.filename or "consult-audio",
+        content_type=reported_content_type,
+    )
 
 
 @router.post(

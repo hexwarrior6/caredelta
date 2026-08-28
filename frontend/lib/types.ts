@@ -176,6 +176,13 @@ export type AIRedactionPreview = {
   warning: string | null;
 };
 
+export type AudioTranscriptionResult = {
+  transcript: string;
+  engine: "volcengine_bigmodel_flash";
+  filename: string;
+  content_type: string;
+};
+
 export type AIIngestResult = {
   entry: TimelineEntry;
   highlights: Highlight[];

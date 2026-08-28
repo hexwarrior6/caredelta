@@ -5,6 +5,7 @@ import type {
   AIIngestResult,
   AIInteractionType,
   AIRedactionPreview,
+  AudioTranscriptionResult,
   Comment,
   Highlight,
   PatientRecord as PatientRecordData,
@@ -180,6 +181,12 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
   const [reviewQueueIndex, setReviewQueueIndex] = useState(0);
   const [actionIndex, setActionIndex] = useState(0);
   const [conflictIndex, setConflictIndex] = useState(0);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const authHeaders = useCallback(
     () => ({
@@ -297,12 +304,77 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
 
   function toggleAIIngest() {
     if (!showAIIngest) {
+      setInteractionType(
+        role === "patient"
+          ? "ai_patient_session_summary"
+          : role === "staff"
+            ? "ai_nurse_consult_summary"
+            : "ai_doctor_consult_summary",
+      );
       setTranscript("");
       setRedactionPreview(null);
       setIngestResult(null);
       setSourceId(crypto.randomUUID());
     }
     setShowAIIngest((current) => !current);
+  }
+
+  async function startAudioRecording() {
+    setMutationError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const type = recorder.mimeType || "audio/webm";
+        const blob = new Blob(audioChunksRef.current, { type });
+        setAudioFile(new File([blob], `consult-${Date.now()}.webm`, { type }));
+        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      };
+      recorder.start();
+      setIsRecording(true);
+    } catch {
+      setMutationError("Microphone access was denied or is unavailable.");
+    }
+  }
+
+  function stopAudioRecording() {
+    mediaRecorderRef.current?.stop();
+    mediaRecorderRef.current = null;
+    setIsRecording(false);
+  }
+
+  async function transcribeAudio() {
+    if (!audioFile) return;
+    setIsTranscribing(true);
+    setMutationError(null);
+    setRedactionPreview(null);
+    setIngestResult(null);
+    try {
+      const form = new FormData();
+      form.append("audio", audioFile);
+      const response = await fetch(`${apiUrl}/api/patients/${patientId}/audio-transcription`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: form,
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+        throw new Error(payload?.detail ?? `Transcription returned HTTP ${response.status}`);
+      }
+      const result = (await response.json()) as AudioTranscriptionResult;
+      setTranscript(result.transcript);
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to transcribe audio");
+    } finally {
+      setIsTranscribing(false);
+    }
   }
 
   async function runAIIngest(event: React.FormEvent<HTMLFormElement>) {
@@ -339,6 +411,11 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
     : record?.patient_chat_sessions.find((item) => item.id === activeChatId)
       ?? record?.patient_chat_sessions[0]
       ?? null;
+  const availableInteractionTypes: AIInteractionType[] = role === "patient"
+    ? ["ai_patient_session_summary"]
+    : role === "staff"
+      ? ["ai_nurse_consult_summary"]
+      : Object.keys(interactionLabels) as AIInteractionType[];
 
   async function sendPatientChat(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -794,15 +871,13 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-slate-500">{record.timeline_entries.length} entries</span>
-                {(role === "clinician" || role === "admin") && (
-                  <button
-                    type="button"
-                    onClick={toggleAIIngest}
-                    className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100"
-                  >
-                    {showAIIngest ? "Close AI ingest" : "Ingest AI note"}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={toggleAIIngest}
+                  className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100"
+                >
+                  {showAIIngest ? "Close voice capture" : "Capture consult"}
+                </button>
                 {role !== "patient" && (
                   <button
                     type="button"
@@ -821,11 +896,11 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
               </p>
             )}
 
-            {showAIIngest && (role === "clinician" || role === "admin") && (
+            {showAIIngest && (
               <form onSubmit={runAIIngest} className="mt-5 overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm">
                 <div className="border-b border-violet-100 bg-violet-50/70 px-5 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">Secure AI ingest</p>
-                  <h3 className="mt-1 text-lg font-semibold text-slate-950">Redact first, then extract source-backed signals</h3>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">Ambient consult capture</p>
+                  <h3 className="mt-1 text-lg font-semibold text-slate-950">Transcribe, redact, then extract source-backed signals</h3>
                   <p className="mt-1 text-sm text-slate-600">The backend re-runs redaction during ingest. Raw text is never passed directly to the LLM.</p>
                 </div>
                 <div className="grid gap-5 p-5 lg:grid-cols-2">
@@ -837,14 +912,45 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                       onChange={(event) => setInteractionType(event.target.value as AIInteractionType)}
                       className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-violet-500"
                     >
-                      {Object.entries(interactionLabels).map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
+                      {availableInteractionTypes.map((value) => (
+                        <option key={value} value={value}>{interactionLabels[value]}</option>
                       ))}
                     </select>
                     <p className="mt-3 rounded-lg border border-violet-100 bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-800">
                       The timeline title and source ID are generated automatically during ingest.
                     </p>
-                    <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="ai-transcript">Synthetic transcript or note</label>
+                    <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => isRecording ? stopAudioRecording() : void startAudioRecording()}
+                          className={`rounded-lg px-3 py-2 text-xs font-semibold text-white ${isRecording ? "bg-rose-600" : "bg-sky-700"}`}
+                        >
+                          {isRecording ? "Stop recording" : "Record microphone"}
+                        </button>
+                        <label className="cursor-pointer rounded-lg border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-sky-800 hover:bg-sky-100">
+                          Upload audio
+                          <input
+                            type="file"
+                            accept="audio/*"
+                            className="sr-only"
+                            onChange={(event) => setAudioFile(event.target.files?.[0] ?? null)}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          disabled={!audioFile || isRecording || isTranscribing}
+                          onClick={() => void transcribeAudio()}
+                          className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-40"
+                        >
+                          {isTranscribing ? "Transcribing…" : "Transcribe with Doubao"}
+                        </button>
+                      </div>
+                      <p className="mt-2 truncate text-xs text-sky-800">
+                        {isRecording ? "Recording in progress…" : audioFile ? `Ready: ${audioFile.name}` : "Record a consultation or upload an audio file (max 15 MB)."}
+                      </p>
+                    </div>
+                    <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-600" htmlFor="ai-transcript">Transcript or note</label>
                     <textarea
                       id="ai-transcript"
                       required
