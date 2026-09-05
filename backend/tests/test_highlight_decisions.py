@@ -129,7 +129,7 @@ def test_highlight_decision_enforces_clinic_scope() -> None:
         json={"decision": "accept"},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 def test_admin_can_reverse_a_rejection_and_default_reason_is_recorded() -> None:

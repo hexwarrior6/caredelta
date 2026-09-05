@@ -49,7 +49,11 @@ from app.models import (
     VisibilityScope,
 )
 from app.repositories import PatientRecordRepository, VersionConflictError
-from app.services.patient_records import entry_action, filter_patient_record
+from app.services.patient_records import (
+    entry_action,
+    filter_patient_record,
+    is_provenance_current,
+)
 from app.services.ai_ingest import LLMAdapter, extract_with_fallback, redact_phi
 from app.services.asr import ASRAdapter
 from app.services.delta_engine import evaluate_signal
@@ -125,7 +129,7 @@ async def transcribe_consult_audio(
     adapter: Annotated[ASRAdapter | None, Depends(get_asr_adapter)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> AudioTranscriptionResponse:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -164,7 +168,7 @@ def preview_ai_ingest_redaction(
     repository: Annotated[PatientRecordRepository, Depends(get_repository)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> AIRedactionPreviewResponse:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -190,7 +194,7 @@ def chat_with_patient_assistant(
     adapter: Annotated[LLMAdapter | None, Depends(get_llm_adapter)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> PatientChatResponse:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -260,7 +264,7 @@ def ingest_patient_chat(
     adapter: Annotated[LLMAdapter | None, Depends(get_llm_adapter)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> PatientChatIngestResponse:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -306,7 +310,7 @@ def ingest_ai_scribed_note(
     adapter: Annotated[LLMAdapter | None, Depends(get_llm_adapter)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> AIIngestResponse:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -444,6 +448,8 @@ def ingest_ai_scribed_note(
                     source_type=payload.interaction_type,
                     source_id=payload.source_id,
                     source_quote=signal.source_snippet,
+                    source_entry_version=entry.version,
+                    current_entry_version=entry.version,
                     start_offset=start,
                     end_offset=start + len(signal.source_snippet),
                     offset_confidence=ProvenanceConfidence.HIGH,
@@ -508,7 +514,7 @@ def create_highlight_interaction(
     repository: Annotated[PatientRecordRepository, Depends(get_repository)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> InteractionEvent:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -553,7 +559,7 @@ def decide_highlight(
     repository: Annotated[PatientRecordRepository, Depends(get_repository)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> Highlight:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -577,6 +583,13 @@ def decide_highlight(
     if source_entry is None:
         raise HTTPException(status_code=409, detail="Highlight source is unavailable")
     require_action(context, entry_action(source_entry))
+    if payload.decision == "accept" and not is_provenance_current(
+        source_entry, highlight.provenance_pointer
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Highlight source has changed; regenerate or create a new source-bound highlight",
+        )
 
     now = datetime.now(timezone.utc)
     accepted = payload.decision == "accept"
@@ -633,7 +646,7 @@ def create_manual_highlight(
     repository: Annotated[PatientRecordRepository, Depends(get_repository)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> Highlight:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -694,6 +707,8 @@ def create_manual_highlight(
             source_type="manual_selection",
             source_id=entry.id,
             source_quote=payload.source_quote,
+            source_entry_version=entry.version,
+            current_entry_version=entry.version,
             start_offset=payload.start_offset,
             end_offset=payload.end_offset,
             offset_confidence=ProvenanceConfidence.HIGH,
@@ -796,7 +811,7 @@ def get_patient_record(
     highlight_page: Annotated[int, Query(ge=1)] = 1,
     highlight_page_size: Annotated[int, Query(ge=1, le=6)] = 3,
 ) -> PatientRecord:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -822,7 +837,7 @@ def create_timeline_entry(
     repository: Annotated[PatientRecordRepository, Depends(get_repository)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> TimelineEntry:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -899,7 +914,7 @@ def create_comment(
     repository: Annotated[PatientRecordRepository, Depends(get_repository)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> Comment:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -939,7 +954,7 @@ def update_comment_status(
     repository: Annotated[PatientRecordRepository, Depends(get_repository)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> Comment:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -969,7 +984,7 @@ def update_timeline_entry(
     repository: Annotated[PatientRecordRepository, Depends(get_repository)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> TimelineEntry:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)
@@ -1021,7 +1036,7 @@ def revert_timeline_entry(
     repository: Annotated[PatientRecordRepository, Depends(get_repository)],
     context: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> TimelineEntry:
-    record = repository.get_patient_record(patient_id)
+    record = repository.get_patient_record(patient_id, context.clinic_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Patient record not found")
     require_clinic_scope(context, record.patient.clinic_id)

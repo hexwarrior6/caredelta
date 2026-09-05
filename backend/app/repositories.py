@@ -24,7 +24,9 @@ class VersionConflictError(Exception):
 
 
 class PatientRecordRepository(Protocol):
-    def get_patient_record(self, patient_id: str) -> PatientRecord | None: ...
+    def get_patient_record(
+        self, patient_id: str, clinic_id: str | None = None
+    ) -> PatientRecord | None: ...
 
     def add_timeline_entry(
         self, entry: TimelineEntry, version: Version, audit_log: AuditLog
@@ -91,8 +93,16 @@ class MemoryRepository:
             for record in records
         }
 
-    def get_patient_record(self, patient_id: str) -> PatientRecord | None:
+    def get_patient_record(
+        self, patient_id: str, clinic_id: str | None = None
+    ) -> PatientRecord | None:
         record = self._records.get(patient_id)
+        if (
+            record is not None
+            and clinic_id is not None
+            and record.patient.clinic_id != clinic_id
+        ):
+            return None
         return deepcopy(record) if record else None
 
     def add_timeline_entry(
@@ -258,6 +268,26 @@ class MongoRepository:
         record = self.get_patient_record(seed_record.patient.id)
         if record is None:
             return
+        entries_by_id = {entry.id: entry for entry in record.timeline_entries}
+        for highlight in record.highlights:
+            if highlight.provenance_pointer.source_entry_version is not None:
+                continue
+            source_entry = entries_by_id.get(highlight.provenance_pointer.entry_id)
+            if source_entry is None:
+                continue
+            self._collection.update_one(
+                {
+                    "patient.id": record.patient.id,
+                    "highlights.id": highlight.id,
+                },
+                {
+                    "$set": {
+                        "highlights.$.provenance_pointer.source_entry_version": source_entry.version,
+                        "highlights.$.provenance_pointer.current_entry_version": source_entry.version,
+                        "highlights.$.provenance_pointer.stale": False,
+                    }
+                },
+            )
         ingest_keys = sorted(
             {
                 f"{highlight.provenance_pointer.source_type}:{highlight.provenance_pointer.source_id}"
@@ -306,9 +336,14 @@ class MongoRepository:
                 {"$push": {"versions": missing_version}},
             )
 
-    def get_patient_record(self, patient_id: str) -> PatientRecord | None:
+    def get_patient_record(
+        self, patient_id: str, clinic_id: str | None = None
+    ) -> PatientRecord | None:
+        query = {"patient.id": patient_id}
+        if clinic_id is not None:
+            query["patient.clinic_id"] = clinic_id
         document = self._collection.find_one(
-            {"patient.id": patient_id}, projection={"_id": False}
+            query, projection={"_id": False}
         )
         return PatientRecord.model_validate(document) if document else None
 

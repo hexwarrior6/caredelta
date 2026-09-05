@@ -46,6 +46,8 @@ def _provenance(
         source_type=source_type,
         source_id=source_id,
         source_quote=quote,
+        source_entry_version=entry.version,
+        current_entry_version=entry.version,
         start_offset=start,
         end_offset=start + len(quote),
         offset_confidence=ProvenanceConfidence.HIGH,

@@ -91,7 +91,7 @@ function TimelineContent({
   entry: TimelineEntry;
   focusedPointer: Highlight["provenance_pointer"] | null;
 }) {
-  if (!focusedPointer || focusedPointer.entry_id !== entry.id) {
+  if (!focusedPointer || focusedPointer.entry_id !== entry.id || focusedPointer.stale) {
     return <>{entry.content}</>;
   }
 
@@ -235,6 +235,8 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isIngesting, setIsIngesting] = useState(false);
+  const [ingestSlow, setIngestSlow] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -449,7 +451,10 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
     event.preventDefault();
     if (!redactionPreview) return;
     setBusy(true);
+    setIsIngesting(true);
+    setIngestSlow(false);
     setMutationError(null);
+    const slowTimer = window.setTimeout(() => setIngestSlow(true), 8_000);
     try {
       const result = await postJson<AIIngestResult>(
         `/api/patients/${patientId}/ai-ingest`,
@@ -474,6 +479,9 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
     } catch (caught) {
       setMutationError(caught instanceof Error ? caught.message : "Unable to run AI ingest");
     } finally {
+      window.clearTimeout(slowTimer);
+      setIsIngesting(false);
+      setIngestSlow(false);
       setBusy(false);
     }
   }
@@ -1159,8 +1167,15 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                           disabled={busy}
                           className="mt-4 w-full rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-600 disabled:opacity-50"
                         >
-                          {busy ? "Extracting…" : "Extract signals & generate title"}
+                          {isIngesting ? "Extracting…" : "Extract signals & generate title"}
                         </button>
+                        {isIngesting && (
+                          <p role="status" className="mt-3 rounded-lg border border-violet-200 bg-white p-3 text-xs leading-5 text-violet-800">
+                            {ingestSlow
+                              ? "DeepSeek is taking longer than usual. CareDelta will stop waiting at 30 seconds and continue with local deterministic rules."
+                              : "DeepSeek is reviewing the redacted text. You can keep this page open; a fallback result will appear if the model times out."}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <div className="mt-3 grid min-h-72 flex-1 place-items-center rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-sm leading-6 text-slate-500">
@@ -1179,6 +1194,11 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                           Ingest complete · {ingestResult.promoted_count} promoted · {ingestResult.review_queue_count} queued for review
                         </p>
                         <p className="mt-1 text-sm text-slate-600">{ingestResult.summary}</p>
+                        {ingestResult.fallback_reason === "timeout" && (
+                          <p role="status" className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-medium leading-5 text-amber-900">
+                            DeepSeek timed out after 30 seconds. CareDelta continued with local deterministic rules; review the extracted signals before accepting them.
+                          </p>
+                        )}
                       </div>
                       <span className={`rounded-full px-3 py-1 text-xs font-semibold ${ingestResult.extraction_method === "deepseek" ? "bg-emerald-200 text-emerald-900" : "bg-amber-200 text-amber-900"}`}>
                         {ingestResult.extraction_method === "deepseek" ? "DeepSeek LLM" : `Deterministic fallback · ${ingestResult.fallback_reason ? fallbackLabels[ingestResult.fallback_reason] : "unknown reason"}`}
@@ -1229,6 +1249,11 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                   (version) => version.version_number < entry.version,
                 );
                 const isFocused = focusedHighlight?.provenance_pointer.entry_id === entry.id;
+                const focusedSourceVersion = isFocused && focusedHighlight?.provenance_pointer.stale
+                  ? versions.find(
+                      (version) => version.version_number === focusedHighlight.provenance_pointer.source_entry_version,
+                    )
+                  : undefined;
                 return (
                   <article key={entry.id} id={entry.id} className="relative scroll-mt-8 pl-12">
                     <span className={`absolute left-3 top-7 h-3.5 w-3.5 rounded-full border-4 border-[#f5f8f7] ${entry.author_role === "system" ? "bg-violet-500" : entry.author_role === "patient" ? "bg-sky-500" : "bg-teal-600"}`} />
@@ -1254,6 +1279,22 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                         }
                         onTextSelected={selectManualHighlight}
                       />
+                      {isFocused && focusedHighlight?.provenance_pointer.stale && (
+                        <section className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4" aria-label="Stale source comparison">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Source changed — re-review required</p>
+                          <p className="mt-1 text-xs leading-5 text-rose-800">This dependent highlight was removed from Glance because it points to v{focusedHighlight.provenance_pointer.source_entry_version}, while the note is now v{entry.version}.</p>
+                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <div className="rounded-lg border border-rose-100 bg-white p-3">
+                              <p className="text-xs font-semibold text-rose-700">Original source · v{focusedHighlight.provenance_pointer.source_entry_version}</p>
+                              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{focusedSourceVersion?.content_snapshot ?? focusedHighlight.provenance_pointer.source_quote}</p>
+                            </div>
+                            <div className="rounded-lg border border-teal-200 bg-white p-3">
+                              <p className="text-xs font-semibold text-teal-700">Current source · v{entry.version}</p>
+                              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{entry.content}</p>
+                            </div>
+                          </div>
+                        </section>
+                      )}
                       {manualSelection?.entryId === entry.id && manualComposerOpen && (
                         <form onSubmit={createManualHighlight} className="mt-4 rounded-xl border border-violet-200 bg-violet-50/70 p-4">
                           <div className="flex items-start justify-between gap-3">
@@ -1520,7 +1561,7 @@ export function PatientRecord({ session, patientId, onLogout }: { session: DemoS
                         <button type="button" onClick={() => revealSource(highlight)} className="mt-2 text-xs font-semibold text-amber-700 hover:text-amber-900">Inspect source →</button>
                         {(role === "clinician" || role === "admin") && (
                           <div className="mt-2 grid grid-cols-2 gap-2 border-t border-amber-100 pt-2">
-                            <button type="button" disabled={busy} onClick={() => void decideHighlight(highlight, "accept")} className="rounded-lg bg-emerald-700 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">Accept</button>
+                            <button type="button" disabled={busy || highlight.provenance_pointer.stale} onClick={() => void decideHighlight(highlight, "accept")} title={highlight.provenance_pointer.stale ? "Create a new highlight from the current source before accepting" : undefined} className="rounded-lg bg-emerald-700 px-2 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">{highlight.provenance_pointer.stale ? "Source changed" : "Accept"}</button>
                             <button type="button" disabled={busy} onClick={() => void decideHighlight(highlight, "reject")} className="rounded-lg border border-rose-200 px-2 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Reject</button>
                           </div>
                         )}

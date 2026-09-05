@@ -43,6 +43,9 @@ export type ProvenancePointer = {
   source_type: string;
   source_id: string;
   source_quote: string;
+  source_entry_version: number | null;
+  current_entry_version: number | null;
+  stale: boolean;
   start_offset: number;
   end_offset: number;
   offset_confidence: ProvenanceConfidence;

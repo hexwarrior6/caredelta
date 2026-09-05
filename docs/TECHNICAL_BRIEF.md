@@ -24,6 +24,13 @@ integration. It uses synthetic data, passwordless demo identities, synchronous
 short-transcript ingestion, full revision snapshots, and scoped conflict rules
 for allergies, medication changes, and dependent tasks.
 
+The feedback iteration deliberately prioritizes four failure states rather than
+claiming all sixteen scenarios: defense-in-depth clinic isolation, visible LLM
+timeout/fallback behavior, lost-update prevention, and invalidation of output
+whose source has changed. These were selected because they can directly affect
+the wrong patient, the clinician standing with a patient, or the trustworthiness
+of the record, and because each can be demonstrated and tested end to end.
+
 ## 2. Architecture and runtime flow
 
 ```text
@@ -91,6 +98,13 @@ confidence and reason, trust state, base/effective importance, and a provenance
 pointer containing source entry, exact quote, offsets, and offset confidence.
 The UI jumps from a card to that span and marks it in the timeline.
 
+Highlight provenance is version-bound. A pointer records the source entry
+version that was reviewed. If the entry version or exact cited span later
+changes, the dependent highlight is marked stale, removed from Glance, moved to
+the review queue, and cannot be re-accepted against the obsolete source. The UI
+shows the original version beside the current version so the reviewer can create
+a new source-bound assertion rather than silently trusting shifted text.
+
 Every edit uses `expected_version`. A matching update stores a full prior
 snapshot, increments the version, and emits metadata-only audit history. A stale
 write receives `409 Conflict`; reverting creates a new version rather than
@@ -112,7 +126,9 @@ and source pointers.
 
 The action matrix distinguishes patient, staff, clinician, and admin operations.
 All record routes check the signed actor, action permission, patient binding, and
-clinic scope. Patients receive only patient-safe summaries and instructions;
+clinic scope. Patient-record repository reads also include `clinic_id`, so a
+broken or omitted route-level scope check still returns no cross-clinic record.
+Patients receive only patient-safe summaries and instructions;
 raw AI transcripts, AI-scribed notes, internal comments, unreviewed signals, and
 audit history are excluded. Staff cannot edit clinician sections, clinicians
 cannot overwrite staff notes, and cross-clinic access is rejected.
@@ -174,6 +190,14 @@ yet provide diarization, overlap recovery, word timestamps, or noisy-room qualit
 metrics. MongoDB multi-document transactions and durable job queues would be
 needed for higher-throughput production ingestion. The current synchronous path
 keeps failures visible and the safety behavior easy to inspect within 72 hours.
+The current ASR is post-consult rather than streaming; mixed Malay-English-
+Hokkien recognition and multilingual downstream extraction are not validated.
+Appointment-link delivery, delivery receipts, medical-reference dosage checks,
+and correction of already-sent patient communications are also outside the
+implemented prototype and must not be inferred from the task or instruction UI.
+DeepSeek retains an explicit 30-second timeout. During a slow ingest the UI says
+that the model is still pending and that local rules will take over; after a
+timeout it labels the result as deterministic fallback and requires review.
 
 The judging story is a closed trust loop: open the Glance View in under ten
 seconds; click an AI-derived signal to its exact source; inspect its risk,
