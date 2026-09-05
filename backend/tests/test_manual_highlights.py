@@ -119,7 +119,7 @@ def test_manual_highlight_enforces_clinic_scope() -> None:
         json=selection_payload(),
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 def test_server_rejects_stale_or_tampered_source_offsets() -> None:

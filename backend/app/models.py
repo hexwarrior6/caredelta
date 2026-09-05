@@ -113,6 +113,9 @@ class ProvenancePointer(BaseModel):
     source_type: str
     source_id: str
     source_quote: str
+    source_entry_version: int | None = Field(default=None, ge=1)
+    current_entry_version: int | None = Field(default=None, ge=1)
+    stale: bool = False
     start_offset: int = Field(ge=0)
     end_offset: int = Field(ge=0)
     offset_confidence: ProvenanceConfidence

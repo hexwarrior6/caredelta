@@ -57,3 +57,46 @@ def test_scenario_a_top_highlight_points_to_patient_check_in_span() -> None:
     assert source_entry["content"][
         pointer["start_offset"] : pointer["end_offset"]
     ] == "Reliever inhaler used five days this week."
+
+
+def test_edited_source_marks_dependent_highlight_stale_and_requires_review() -> None:
+    edited = client.patch(
+        f"/api/patients/{PATIENT_ID}/entries/entry-2026-08-27",
+        headers={
+            "X-Actor-Id": "admin-syn-morgan",
+            "X-Actor-Role": "admin",
+            "X-Clinic-Id": "clinic-syn-orchard",
+        },
+        json={
+            "content": "Spirometry was booked for next Tuesday.",
+            "expected_version": 1,
+        },
+    )
+    assert edited.status_code == 200
+
+    record = client.get(
+        f"/api/patients/{PATIENT_ID}/record", headers=AUTH_HEADERS
+    ).json()
+    assert "highlight-spirometry" not in {
+        item["id"] for item in record["highlights"]
+    }
+    stale = next(
+        item
+        for item in record["review_queue"]
+        if item["id"] == "highlight-spirometry"
+    )
+    pointer = stale["provenance_pointer"]
+    assert stale["trust_status"] == "needs_review"
+    assert stale["abstained_from_glance"] is True
+    assert pointer["source_entry_version"] == 1
+    assert pointer["current_entry_version"] == 2
+    assert pointer["stale"] is True
+    assert "clinical re-review is required" in stale["abstention_reason"]
+
+    cannot_reaccept = client.post(
+        f"/api/patients/{PATIENT_ID}/highlights/highlight-spirometry/decision",
+        headers=AUTH_HEADERS,
+        json={"decision": "accept"},
+    )
+    assert cannot_reaccept.status_code == 409
+    assert "source has changed" in cannot_reaccept.json()["detail"]

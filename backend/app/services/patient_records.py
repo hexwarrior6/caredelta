@@ -5,6 +5,7 @@ from app.models import (
     HighlightPagination,
     PatientRecord,
     TimelineEntry,
+    TrustStatus,
     UserRole,
     VisibilityScope,
 )
@@ -30,6 +31,47 @@ def paginate_glance_highlights(highlights, page: int, page_size: int):
             total_items=total_items,
             total_pages=total_pages,
         ),
+    )
+
+
+def is_provenance_current(entry, pointer) -> bool:
+    return (
+        (
+            pointer.source_entry_version is None
+            or pointer.source_entry_version == entry.version
+        )
+        and entry.content[pointer.start_offset : pointer.end_offset] == pointer.source_quote
+    )
+
+
+def bind_provenance_to_current_entry(highlight, entries_by_id):
+    """Invalidate dependent output when its version-bound source has changed."""
+    entry = entries_by_id.get(highlight.provenance_pointer.entry_id)
+    if entry is None:
+        return highlight
+
+    pointer = highlight.provenance_pointer
+    stale = not is_provenance_current(entry, pointer)
+    updated_pointer = pointer.model_copy(
+        update={"current_entry_version": entry.version, "stale": stale}
+    )
+    if not stale:
+        return highlight.model_copy(update={"provenance_pointer": updated_pointer})
+
+    return highlight.model_copy(
+        update={
+            "provenance_pointer": updated_pointer,
+            "trust_status": (
+                TrustStatus.REJECTED
+                if highlight.trust_status == TrustStatus.REJECTED
+                else TrustStatus.NEEDS_REVIEW
+            ),
+            "abstained_from_glance": True,
+            "abstention_reason": (
+                f"Source changed from version {pointer.source_entry_version} to version "
+                f"{entry.version}; clinical re-review is required."
+            ),
+        }
     )
 
 
@@ -66,6 +108,7 @@ def filter_patient_record(
         reverse=True,
     )
     visible_entry_ids = {entry.id for entry in visible_entries}
+    visible_entries_by_id = {entry.id: entry for entry in visible_entries}
 
     # A signal is hidden when its source entry is hidden. This prevents provenance
     # metadata from becoming a side channel for restricted note content.
@@ -73,7 +116,10 @@ def filter_patient_record(
         event for event in record.interaction_events if event.actor_id == context.actor_id
     ]
     visible_highlights = [
-        apply_bounded_learning(highlight, actor_events)
+        apply_bounded_learning(
+            bind_provenance_to_current_entry(highlight, visible_entries_by_id),
+            actor_events,
+        )
         for highlight in record.highlights
         if highlight.provenance_pointer.entry_id in visible_entry_ids
     ]

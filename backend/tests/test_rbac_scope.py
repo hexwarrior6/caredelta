@@ -146,11 +146,31 @@ def test_staff_can_edit_only_their_own_staff_note() -> None:
     assert denied.status_code == 403
 
 
-@pytest.mark.parametrize("role", ["patient", "staff", "clinician", "admin"])
-def test_every_role_is_rejected_outside_its_clinic_scope(role: str) -> None:
+@pytest.mark.parametrize(
+    ("role", "expected_status"),
+    [("patient", 403), ("staff", 404), ("clinician", 404), ("admin", 404)],
+)
+def test_every_role_is_rejected_outside_its_clinic_scope(
+    role: str, expected_status: int
+) -> None:
     response = client.get(
         f"/api/patients/{PATIENT_ID}/record",
         headers=headers(role, clinic_id="clinic-syn-other"),
     )
 
-    assert response.status_code == 403
+    assert response.status_code == expected_status
+
+
+def test_repository_scope_still_blocks_cross_clinic_read_if_route_guard_breaks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.routes.patients.require_clinic_scope", lambda *_args, **_kwargs: None
+    )
+
+    response = client.get(
+        f"/api/patients/{PATIENT_ID}/record",
+        headers=headers("clinician", clinic_id="clinic-syn-other"),
+    )
+
+    assert response.status_code == 404

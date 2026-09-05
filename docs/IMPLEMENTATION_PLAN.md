@@ -625,7 +625,8 @@ Submission-readiness update (28 August 2026):
   key, and timeout. The adapter requests JSON-only output and validates it using
   a strict Pydantic contract with unknown fields rejected.
 - DeepSeek extraction explicitly disables the model's default high-effort
-  thinking mode, caps output at 1,200 tokens, and uses a 30-second timeout. This
+  thinking mode, caps output at 1,200 tokens, and uses a 30-second timeout before
+  deterministic fallback. This
   keeps structured extraction responsive while retaining deterministic fallback
   for genuine service failures. A live synthetic, non-persistent probe returned
   through the `deepseek` path with two validated source-grounded signals.
@@ -800,3 +801,37 @@ Submission-readiness update (28 August 2026):
   server-issued audio references, voice-source retention semantics, and rejection
   of an invalid audio reference. Existing highlight span provenance remains
   independent and still resolves to exact TimelineEntry text.
+
+### Phase 13: Version-Bound Dependent Provenance
+
+- Every highlight pointer now records the exact source-entry version it was
+  created against. Record assembly verifies both that version and the cited text
+  span against the current entry.
+- A changed source invalidates dependent output automatically: the highlight is
+  marked stale, changes to `needs_review`, leaves Glance, and cannot be accepted
+  again against the obsolete citation.
+- The source view shows the bound historical snapshot beside the current entry
+  so reviewers can understand the change and create a new source-bound signal.
+- `tests/test_highlight_provenance.py` covers stale detection, Glance removal,
+  review routing, version metadata, and rejection of stale re-acceptance.
+- Scope remains explicit: external EHR edits require an imported immutable
+  revision ID or content hash before CareDelta can detect them. Streaming ASR,
+  diarization, multilingual code-switch evaluation, delivery receipts, and
+  dosage-reference validation remain documented follow-on work rather than
+  unsupported implementation claims.
+
+### Phase 14: Feedback-Selected Failure-State Hardening
+
+- Keep the DeepSeek timeout at 30 seconds, but make waiting and fallback visible:
+  after eight seconds the UI explains the timeout budget, and a timeout result
+  explicitly says that deterministic local rules produced the candidate output.
+- Add repository-level clinic scoping to patient-record reads while retaining
+  route-level checks. Cross-clinic callers receive no record even if the explicit
+  route guard is accidentally bypassed; an automated test simulates that fault.
+- Reclassify no-email onboarding as unsupported for real clinics. Demo keys show
+  only that the data model does not require email; a production path needs
+  WhatsApp or phone OTP, secure identity binding, rate limits, and recovery.
+- Treat mixed-language ASR as partial: the hosted model supports Malay, English,
+  and Mandarin inputs, but within-sentence switching and Hokkien accuracy remain
+  unverified. A self-hosted Whisper path is a privacy option, not an accuracy
+  claim, until benchmarked on representative consented or synthetic audio.
